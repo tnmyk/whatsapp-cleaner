@@ -6,3 +6,7 @@ edition = "2024"
 [dependencies]
 gpui = { package = "gpui-pre", version = "0.3.13" }
 gpui_platform = { package = "gpui-pre-platform", version = "0.3.13", features = ["font-kit"] }
+image = { version = "0.25", default-features = false }
+qrcode = { version = "0.15", default-features = false, features = ["std"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync"] }
+whatsapp-rust = { version = "0.7", default-features = false, features = ["sqlite-storage", "tokio-transport", "tokio-runtime", "tokio-native", "ureq-client"] }
