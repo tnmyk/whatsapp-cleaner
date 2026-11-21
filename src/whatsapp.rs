@@ -126,8 +126,44 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
                 pending_batches.fetch_add(1, Ordering::SeqCst);
 
                 tokio::spawn(async move {
-                    for (jid, name) in new_chats {
+                    // One batched usync gives verified business names and a cheap
+                    // business flag, so profile IQs only go to likely businesses.
+                    let mut user_info = std::collections::HashMap::new();
+                    for chunk in new_chats.chunks(50) {
+                        let jids: Vec<Jid> = chunk.iter().map(|(jid, _)| jid.clone()).collect();
+                        match client.contacts().get_user_info(&jids).await {
+                            Ok(infos) => {
+                                for (jid, info) in infos {
+                                    user_info.insert(jid.to_string(), info);
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("user info query failed: {error}");
+                            }
+                        }
+                        tokio::time::sleep(Duration::from_millis(150)).await;
+                    }
+
+                    for (jid, conversation_name) in new_chats {
                         let jid_string = jid.to_string();
+                        let info = user_info.remove(&jid_string);
+
+                        let name = conversation_name
+                            .or_else(|| {
+                                info.as_ref()
+                                    .and_then(|info| info.verified_name.as_ref())
+                                    .and_then(|verified| verified.name.clone())
+                                    .filter(|name| !name.is_empty())
+                            })
+                            .unwrap_or_else(|| jid.user_base().to_string());
+
+                        if let Some(info) = &info
+                            && !info.is_business
+                            && info.business_error.is_none()
+                        {
+                            continue;
+                        }
+
                         match client.get_business_profile(&jid).await {
                             Ok(Some(profile)) => {
                                 let avatar = match client
@@ -192,7 +228,7 @@ fn fetch_avatar(url: &str) -> Option<Arc<RenderImage>> {
     Some(Arc::new(RenderImage::new(vec![image::Frame::new(decoded)])))
 }
 
-fn conversation_chat(conversation: &wa::Conversation) -> Option<(Jid, String)> {
+fn conversation_chat(conversation: &wa::Conversation) -> Option<(Jid, Option<String>)> {
     let raw_jid = conversation
         .pn_jid
         .as_deref()
@@ -209,8 +245,7 @@ fn conversation_chat(conversation: &wa::Conversation) -> Option<(Jid, String)> {
         .as_deref()
         .or(conversation.name.as_deref())
         .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| jid.user_base().to_string());
+        .map(str::to_string);
 
     Some((jid.into_non_ad(), name))
 }
