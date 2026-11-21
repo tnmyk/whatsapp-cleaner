@@ -1,13 +1,19 @@
+mod text_input;
 mod whatsapp;
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use gpui::{
-    App, Bounds, Context, FontWeight, ImageSource, RenderImage, SharedString, TitlebarOptions,
-    Window, WindowBounds, WindowOptions, div, img, prelude::*, px, rgb, size,
+    App, Bounds, Context, Entity, FontWeight, ImageSource, KeyBinding, RenderImage, SharedString,
+    Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, prelude::*, px,
+    rgb, size,
 };
 use gpui_platform::application;
+use text_input::{
+    Backspace, Copy, Cut, Delete, End, Home, Left, Paste, Right, SelectAll, SelectLeft,
+    SelectRight, ShowCharacterPalette,
+};
 use tokio::sync::mpsc;
 use whatsapp::{BusinessChat, SessionEvent};
 
@@ -27,18 +33,26 @@ struct WhatsappCleaner {
     hint: SharedString,
     chats: Vec<BusinessChat>,
     selected: HashSet<String>,
+    search_input: Entity<text_input::TextInput>,
+    _search_subscription: Subscription,
     scanning: bool,
     error: bool,
 }
 
 impl WhatsappCleaner {
-    fn new() -> Self {
+    fn new(cx: &mut Context<Self>) -> Self {
+        let search_input =
+            cx.new(|cx| text_input::TextInput::new("Search by name, category, or phone", cx));
+        let _search_subscription = cx.observe(&search_input, |_, _, cx| cx.notify());
+
         Self {
             qr: None,
             status: "Connecting to WhatsApp…".into(),
             hint: "".into(),
             chats: Vec::new(),
             selected: HashSet::new(),
+            search_input,
+            _search_subscription,
             scanning: false,
             error: false,
         }
@@ -100,7 +114,7 @@ impl WhatsappCleaner {
 }
 
 impl Render for WhatsappCleaner {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let status_color = if self.error {
             rgb(DANGER)
         } else if self.qr.is_some() || self.scanning {
@@ -255,20 +269,35 @@ impl Render for WhatsappCleaner {
                     ),
             );
         } else {
-            let count = self.chats.len();
+            let query_raw = self.search_input.read(cx).content().trim().to_string();
+            let query = query_raw.to_lowercase();
+            let visible_chats: Vec<&BusinessChat> = self
+                .chats
+                .iter()
+                .filter(|chat| {
+                    query.is_empty()
+                        || chat.name.to_lowercase().contains(&query)
+                        || chat.jid.contains(&query)
+                        || chat.category.to_lowercase().contains(&query)
+                        || chat.description.to_lowercase().contains(&query)
+                })
+                .collect();
+            let count = visible_chats.len();
             let subtitle = if self.scanning {
                 "Checking chats from history sync…"
             } else {
                 "From your WhatsApp history sync"
             };
 
-            let all_selected = self
-                .chats
-                .iter()
-                .all(|chat| self.selected.contains(&chat.jid));
+            let all_selected = !visible_chats.is_empty()
+                && visible_chats
+                    .iter()
+                    .all(|chat| self.selected.contains(&chat.jid));
             let select_label = if all_selected { "Clear all" } else { "Select all" };
-            let selectable_jids: Vec<String> =
-                self.chats.iter().map(|chat| chat.jid.clone()).collect();
+            let selectable_jids: Vec<String> = visible_chats
+                .iter()
+                .map(|chat| chat.jid.clone())
+                .collect();
             let select_all = div()
                 .id("select-all")
                 .text_xs()
@@ -277,9 +306,11 @@ impl Render for WhatsappCleaner {
                 .hover(|style| style.text_color(rgb(TEXT)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if all_selected {
-                        this.selected.clear();
+                        for jid in &selectable_jids {
+                            this.selected.remove(jid);
+                        }
                     } else {
-                        this.selected = selectable_jids.iter().cloned().collect();
+                        this.selected.extend(selectable_jids.iter().cloned());
                     }
                     cx.notify();
                 }))
@@ -336,7 +367,7 @@ impl Render for WhatsappCleaner {
                 .max_h(px(520.0))
                 .overflow_scroll();
 
-            for chat in &self.chats {
+            for chat in visible_chats.iter().copied() {
                 let initial = chat
                     .name
                     .chars()
@@ -426,11 +457,14 @@ impl Render for WhatsappCleaner {
                     details = details.child(
                         div()
                             .mt_1()
-                            .px_2()
+                            .self_start()
+                            .min_w(px(96.0))
+                            .px_3()
                             .py_1()
                             .rounded_full()
                             .bg(rgb(BG))
                             .text_xs()
+                            .text_center()
                             .text_color(rgb(ACCENT))
                             .child(chat.category.clone()),
                     );
@@ -471,7 +505,86 @@ impl Render for WhatsappCleaner {
                 list = list.child(row);
             }
 
+            if visible_chats.is_empty() {
+                list = list.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap_2()
+                        .w_full()
+                        .py_12()
+                        .rounded_xl()
+                        .bg(rgb(SURFACE))
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .child(
+                            div()
+                                .text_base()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child("No matching chats"),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(MUTED))
+                                .child(format!("Nothing matches “{query_raw}”")),
+                        ),
+                );
+            }
+
             body = body.child(section);
+
+            let has_query = !query.is_empty();
+            let search_focused = self
+                .search_input
+                .read(cx)
+                .focus_handle()
+                .is_focused(window);
+
+            let mut search_bar = div()
+                .id("search")
+                .w(px(760.0))
+                .mb_3()
+                .px_4()
+                .py_2()
+                .flex()
+                .items_center()
+                .gap_3()
+                .rounded_xl()
+                .bg(rgb(SURFACE))
+                .border_1()
+                .border_color(if search_focused {
+                    rgb(ACCENT)
+                } else {
+                    rgb(BORDER)
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .child(self.search_input.clone()),
+                );
+
+            if has_query {
+                search_bar = search_bar.child(
+                    div()
+                        .id("clear-search")
+                        .px_2()
+                        .text_sm()
+                        .text_color(rgb(MUTED))
+                        .cursor_pointer()
+                        .hover(|style| style.text_color(rgb(TEXT)))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.search_input
+                                .update(cx, |input, cx| input.clear(window, cx));
+                        }))
+                        .child("×"),
+                );
+            }
+
+            body = body.child(search_bar);
 
             if !self.selected.is_empty() {
                 let selected_count = self.selected.len();
@@ -591,6 +704,26 @@ fn main() {
     whatsapp::spawn(events_tx);
 
     application().run(move |cx: &mut App| {
+        cx.bind_keys([
+            KeyBinding::new("backspace", Backspace, Some("TextInput")),
+            KeyBinding::new("delete", Delete, Some("TextInput")),
+            KeyBinding::new("left", Left, Some("TextInput")),
+            KeyBinding::new("right", Right, Some("TextInput")),
+            KeyBinding::new("shift-left", SelectLeft, Some("TextInput")),
+            KeyBinding::new("shift-right", SelectRight, Some("TextInput")),
+            KeyBinding::new("cmd-a", SelectAll, Some("TextInput")),
+            KeyBinding::new("cmd-v", Paste, Some("TextInput")),
+            KeyBinding::new("cmd-c", Copy, Some("TextInput")),
+            KeyBinding::new("cmd-x", Cut, Some("TextInput")),
+            KeyBinding::new("home", Home, Some("TextInput")),
+            KeyBinding::new("end", End, Some("TextInput")),
+            KeyBinding::new(
+                "ctrl-cmd-space",
+                ShowCharacterPalette,
+                Some("TextInput"),
+            ),
+        ]);
+
         let bounds = Bounds::centered(None, size(px(1100.0), px(760.0)), cx);
         cx.open_window(
             WindowOptions {
@@ -603,7 +736,7 @@ fn main() {
                 ..Default::default()
             },
             move |_, cx| {
-                let view = cx.new(|_| WhatsappCleaner::new());
+                let view = cx.new(|cx| WhatsappCleaner::new(cx));
                 let task_view = view.clone();
                 let mut events_rx = events_rx;
                 cx.spawn(async move |cx| {

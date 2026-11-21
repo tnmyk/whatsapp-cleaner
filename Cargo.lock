@@ -6397,6 +6397,7 @@ dependencies = [
  "image",
  "qrcode",
  "tokio",
+ "unicode-segmentation",
  "ureq",
  "whatsapp-rust",
 ]
