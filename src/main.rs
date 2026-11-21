@@ -7,7 +7,7 @@ use std::sync::Arc;
 use gpui::{
     App, Bounds, Context, Entity, FontWeight, ImageSource, KeyBinding, RenderImage, SharedString,
     Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, prelude::*, px,
-    rgb, size,
+    relative, rgb, size,
 };
 use gpui_platform::application;
 use text_input::{
@@ -35,6 +35,8 @@ struct WhatsappCleaner {
     selected: HashSet<String>,
     search_input: Entity<text_input::TextInput>,
     _search_subscription: Subscription,
+    checked: usize,
+    total: usize,
     scanning: bool,
     error: bool,
 }
@@ -53,6 +55,8 @@ impl WhatsappCleaner {
             selected: HashSet::new(),
             search_input,
             _search_subscription,
+            checked: 0,
+            total: 0,
             scanning: false,
             error: false,
         }
@@ -75,6 +79,12 @@ impl WhatsappCleaner {
             }
             SessionEvent::ScanStarted => {
                 self.scanning = true;
+                self.error = false;
+            }
+            SessionEvent::ScanProgress { checked, total } => {
+                self.checked = checked;
+                self.total = total;
+                self.scanning = checked < total;
                 self.error = false;
             }
             SessionEvent::BusinessChat(chat) => {
@@ -181,7 +191,8 @@ impl Render for WhatsappCleaner {
             .min_h(px(0.0))
             .w_full()
             .pt_8()
-            .px_8();
+            .px_8()
+            .pb_6();
 
         if let Some(qr) = &self.qr {
             body = body.child(
@@ -212,17 +223,23 @@ impl Render for WhatsappCleaner {
                     ),
             );
         } else if self.chats.is_empty() {
-            let (title, message) = if self.scanning {
-                (
-                    "Looking through your chats",
-                    "History sync is still arriving. Business chats will appear as they are checked.",
-                )
+            let (title, message): (&str, String) = if self.scanning {
+                let message = if self.total > 0 {
+                    format!(
+                        "Checked {} of {} chats. Business chats appear as they are checked.",
+                        self.checked, self.total
+                    )
+                } else {
+                    "History sync is still arriving. Business chats will appear as they are checked."
+                        .to_string()
+                };
+                ("Looking through your chats", message)
             } else if self.error {
-                ("Something went wrong", self.hint.as_ref())
+                ("Something went wrong", self.hint.to_string())
             } else {
                 (
                     "No business chats found",
-                    "Only chats delivered in WhatsApp history sync can be checked.",
+                    "Only chats delivered in WhatsApp history sync can be checked.".to_string(),
                 )
             };
 
@@ -265,7 +282,7 @@ impl Render for WhatsappCleaner {
                             .text_color(rgb(MUTED))
                             .text_center()
                             .max_w(px(420.0))
-                            .child(message.to_string()),
+                            .child(message),
                     ),
             );
         } else {
@@ -283,10 +300,21 @@ impl Render for WhatsappCleaner {
                 })
                 .collect();
             let count = visible_chats.len();
-            let subtitle = if self.scanning {
-                "Checking chats from history sync…"
+            let subtitle: String = if self.scanning {
+                if self.total > 0 {
+                    format!(
+                        "Checked {} of {} chats · {} pending",
+                        self.checked,
+                        self.total,
+                        self.total.saturating_sub(self.checked)
+                    )
+                } else {
+                    "Checking chats from history sync…".to_string()
+                }
+            } else if self.total > 0 {
+                format!("{} chats checked", self.total)
             } else {
-                "From your WhatsApp history sync"
+                "From your WhatsApp history sync".to_string()
             };
 
             let all_selected = !visible_chats.is_empty()
@@ -364,7 +392,6 @@ impl Render for WhatsappCleaner {
                 .w(px(760.0))
                 .flex_1()
                 .min_h(px(0.0))
-                .max_h(px(520.0))
                 .overflow_scroll();
 
             for chat in visible_chats.iter().copied() {
@@ -662,6 +689,23 @@ impl Render for WhatsappCleaner {
             }
         }
 
+        let progress_ratio = if self.total > 0 {
+            (self.checked as f32 / self.total as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let show_progress = self.total > 0 && self.checked < self.total;
+        let progress_bar = div()
+            .w_full()
+            .h(px(4.0))
+            .bg(rgb(SURFACE))
+            .child(
+                div()
+                    .h_full()
+                    .w(relative(progress_ratio))
+                    .bg(rgb(ACCENT)),
+            );
+
         div()
             .size_full()
             .flex()
@@ -669,6 +713,7 @@ impl Render for WhatsappCleaner {
             .bg(rgb(BG))
             .text_color(rgb(TEXT))
             .child(header)
+            .when(show_progress, |this| this.child(progress_bar))
             .child(body)
     }
 }

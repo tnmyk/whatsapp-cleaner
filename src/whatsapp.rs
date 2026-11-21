@@ -22,6 +22,7 @@ pub enum SessionEvent {
     Qr(String),
     Connected,
     ScanStarted,
+    ScanProgress { checked: usize, total: usize },
     BusinessChat(BusinessChat),
     ScanComplete,
     LoggedOut,
@@ -67,10 +68,14 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
 
     let seen_jids = Arc::new(Mutex::new(HashSet::<String>::new()));
     let pending_batches = Arc::new(AtomicUsize::new(0));
+    let queued_chats = Arc::new(AtomicUsize::new(0));
+    let checked_chats = Arc::new(AtomicUsize::new(0));
 
     let sync_tx = tx.clone();
     let sync_seen_jids = seen_jids.clone();
     let sync_pending_batches = pending_batches.clone();
+    let sync_queued_chats = queued_chats.clone();
+    let sync_checked_chats = checked_chats.clone();
 
     let bot = Bot::builder()
         .with_backend(store)
@@ -96,6 +101,8 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
             let tx = sync_tx.clone();
             let seen_jids = sync_seen_jids.clone();
             let pending_batches = sync_pending_batches.clone();
+            let queued_chats = sync_queued_chats.clone();
+            let checked_chats = sync_checked_chats.clone();
 
             async move {
                 let Event::HistorySync(sync) = &*event else {
@@ -124,6 +131,7 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
 
                 let _ = tx.send(SessionEvent::ScanStarted);
                 pending_batches.fetch_add(1, Ordering::SeqCst);
+                queued_chats.fetch_add(new_chats.len(), Ordering::SeqCst);
 
                 tokio::spawn(async move {
                     // One batched usync gives verified business names and a cheap
@@ -157,47 +165,54 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
                             })
                             .unwrap_or_else(|| jid.user_base().to_string());
 
-                        if let Some(info) = &info
-                            && !info.is_business
-                            && info.business_error.is_none()
-                        {
-                            continue;
+                        let known_non_business = info
+                            .as_ref()
+                            .is_some_and(|info| !info.is_business && info.business_error.is_none());
+
+                        if !known_non_business {
+                            match client.get_business_profile(&jid).await {
+                                Ok(Some(profile)) => {
+                                    let avatar = match client
+                                        .contacts()
+                                        .get_profile_picture(&jid, true)
+                                        .await
+                                    {
+                                        Ok(Some(picture)) => fetch_avatar(&picture.url),
+                                        Ok(None) => None,
+                                        Err(error) => {
+                                            eprintln!(
+                                                "profile picture query failed for {jid_string}: {error}"
+                                            );
+                                            None
+                                        }
+                                    };
+
+                                    let _ = tx.send(SessionEvent::BusinessChat(BusinessChat {
+                                        jid: jid_string,
+                                        name,
+                                        description: profile.description,
+                                        category: profile
+                                            .categories
+                                            .first()
+                                            .map(|category| category.name.clone())
+                                            .unwrap_or_default(),
+                                        avatar,
+                                    }));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    eprintln!(
+                                        "business profile query failed for {jid_string}: {error}"
+                                    );
+                                }
+                            }
                         }
 
-                        match client.get_business_profile(&jid).await {
-                            Ok(Some(profile)) => {
-                                let avatar = match client
-                                    .contacts()
-                                    .get_profile_picture(&jid, true)
-                                    .await
-                                {
-                                    Ok(Some(picture)) => fetch_avatar(&picture.url),
-                                    Ok(None) => None,
-                                    Err(error) => {
-                                        eprintln!(
-                                            "profile picture query failed for {jid_string}: {error}"
-                                        );
-                                        None
-                                    }
-                                };
-
-                                let _ = tx.send(SessionEvent::BusinessChat(BusinessChat {
-                                    jid: jid_string,
-                                    name,
-                                    description: profile.description,
-                                    category: profile
-                                        .categories
-                                        .first()
-                                        .map(|category| category.name.clone())
-                                        .unwrap_or_default(),
-                                    avatar,
-                                }));
-                            }
-                            Ok(None) => {}
-                            Err(error) => {
-                                eprintln!("business profile query failed for {jid_string}: {error}");
-                            }
-                        }
+                        let checked = checked_chats.fetch_add(1, Ordering::SeqCst) + 1;
+                        let _ = tx.send(SessionEvent::ScanProgress {
+                            checked,
+                            total: queued_chats.load(Ordering::SeqCst),
+                        });
                         tokio::time::sleep(Duration::from_millis(150)).await;
                     }
 
