@@ -1,5 +1,6 @@
 mod whatsapp;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use gpui::{
@@ -25,6 +26,7 @@ struct WhatsappCleaner {
     status: SharedString,
     hint: SharedString,
     chats: Vec<BusinessChat>,
+    selected: HashSet<String>,
     scanning: bool,
     error: bool,
 }
@@ -36,6 +38,7 @@ impl WhatsappCleaner {
             status: "Connecting to WhatsApp…".into(),
             hint: "".into(),
             chats: Vec::new(),
+            selected: HashSet::new(),
             scanning: false,
             error: false,
         }
@@ -48,6 +51,7 @@ impl WhatsappCleaner {
                 self.status = "Scan to link this device".into();
                 self.hint = "WhatsApp → Settings → Linked devices → Link a device".into();
                 self.error = false;
+                self.selected.clear();
             }
             SessionEvent::Connected => {
                 self.qr = None;
@@ -96,7 +100,7 @@ impl WhatsappCleaner {
 }
 
 impl Render for WhatsappCleaner {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let status_color = if self.error {
             rgb(DANGER)
         } else if self.qr.is_some() || self.scanning {
@@ -258,6 +262,29 @@ impl Render for WhatsappCleaner {
                 "From your WhatsApp history sync"
             };
 
+            let all_selected = self
+                .chats
+                .iter()
+                .all(|chat| self.selected.contains(&chat.jid));
+            let select_label = if all_selected { "Clear all" } else { "Select all" };
+            let selectable_jids: Vec<String> =
+                self.chats.iter().map(|chat| chat.jid.clone()).collect();
+            let select_all = div()
+                .id("select-all")
+                .text_xs()
+                .text_color(rgb(ACCENT))
+                .cursor_pointer()
+                .hover(|style| style.text_color(rgb(TEXT)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if all_selected {
+                        this.selected.clear();
+                    } else {
+                        this.selected = selectable_jids.iter().cloned().collect();
+                    }
+                    cx.notify();
+                }))
+                .child(select_label);
+
             let section = div()
                 .flex()
                 .items_end()
@@ -280,15 +307,22 @@ impl Render for WhatsappCleaner {
                 )
                 .child(
                     div()
-                        .px_3()
-                        .py_1()
-                        .rounded_full()
-                        .bg(rgb(0x005c4b))
-                        .text_xs()
-                        .text_color(rgb(TEXT))
-                        .child(format!(
-                            "{count} found",
-                        )),
+                        .flex()
+                        .items_center()
+                        .gap_4()
+                        .child(select_all)
+                        .child(
+                            div()
+                                .px_3()
+                                .py_1()
+                                .rounded_full()
+                                .bg(rgb(0x005c4b))
+                                .text_xs()
+                                .text_color(rgb(TEXT))
+                                .child(format!(
+                                    "{count} found",
+                                )),
+                        ),
                 );
 
             let mut list = div()
@@ -321,6 +355,36 @@ impl Render for WhatsappCleaner {
                     .bg(rgb(CARD))
                     .border_1()
                     .border_color(rgb(BORDER));
+
+                let checked = self.selected.contains(&chat.jid);
+                let checkbox_jid = chat.jid.clone();
+                row = row.child(
+                    div()
+                        .id(format!("select-{}", chat.jid))
+                        .size(px(22.0))
+                        .rounded_md()
+                        .border_1()
+                        .border_color(if checked {
+                            rgb(ACCENT)
+                        } else {
+                            rgb(0x3b4a54)
+                        })
+                        .bg(if checked { rgb(ACCENT) } else { rgb(CARD) })
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_xs()
+                        .text_color(rgb(BG))
+                        .cursor_pointer()
+                        .hover(|style| style.border_color(rgb(ACCENT)))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.selected.remove(&checkbox_jid) {
+                                this.selected.insert(checkbox_jid.clone());
+                            }
+                            cx.notify();
+                        }))
+                        .child(if checked { "✓" } else { "" }),
+                );
 
                 if let Some(avatar) = &chat.avatar {
                     row = row.child(
@@ -407,7 +471,72 @@ impl Render for WhatsappCleaner {
                 list = list.child(row);
             }
 
-            body = body.child(section).child(list);
+            body = body.child(section);
+
+            if !self.selected.is_empty() {
+                let selected_count = self.selected.len();
+                let bulk_bar = div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .w(px(760.0))
+                    .mb_3()
+                    .px_4()
+                    .py_3()
+                    .rounded_xl()
+                    .bg(rgb(SURFACE))
+                    .border_1()
+                    .border_color(rgb(BORDER))
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(format!("{selected_count} selected")),
+                            )
+                            .child(
+                                div()
+                                    .id("clear-selection")
+                                    .text_xs()
+                                    .text_color(rgb(MUTED))
+                                    .cursor_pointer()
+                                    .hover(|style| style.text_color(rgb(TEXT)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.selected.clear();
+                                        cx.notify();
+                                    }))
+                                    .child("Clear"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("bulk-delete")
+                            .px_4()
+                            .py_2()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(rgb(0x5c2b32))
+                            .text_sm()
+                            .text_color(rgb(DANGER))
+                            .cursor_pointer()
+                            .hover(|style| {
+                                style
+                                    .bg(rgb(DANGER_SURFACE))
+                                    .border_color(rgb(DANGER))
+                            })
+                            .on_click(|_, _, _| {})
+                            .child("Delete selected"),
+                    );
+
+                body = body.child(bulk_bar);
+            }
+
+            body = body.child(list);
 
             if !self.hint.is_empty() {
                 body = body.child(
