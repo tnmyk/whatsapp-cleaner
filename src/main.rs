@@ -8,12 +8,14 @@ use gpui::{
 };
 use gpui_platform::application;
 use tokio::sync::mpsc;
-use whatsapp::SessionEvent;
+use whatsapp::{BusinessChat, SessionEvent};
 
 struct WhatsappCleaner {
     qr: Option<Arc<RenderImage>>,
     status: SharedString,
     hint: SharedString,
+    chats: Vec<BusinessChat>,
+    scanning: bool,
 }
 
 impl WhatsappCleaner {
@@ -22,6 +24,8 @@ impl WhatsappCleaner {
             qr: None,
             status: "Connecting to WhatsApp…".into(),
             hint: "".into(),
+            chats: Vec::new(),
+            scanning: false,
         }
     }
 
@@ -34,8 +38,30 @@ impl WhatsappCleaner {
             }
             SessionEvent::Connected => {
                 self.qr = None;
-                self.status = "Connected".into();
+                self.status = "Scanning chats…".into();
                 self.hint = "".into();
+            }
+            SessionEvent::ScanStarted => {
+                self.scanning = true;
+            }
+            SessionEvent::BusinessChat(chat) => {
+                self.scanning = true;
+                if !self.chats.iter().any(|existing| existing.jid == chat.jid) {
+                    self.chats.push(chat);
+                }
+                self.status = format!(
+                    "{} business chat{}",
+                    self.chats.len(),
+                    if self.chats.len() == 1 { "" } else { "s" }
+                )
+                .into();
+            }
+            SessionEvent::ScanComplete => {
+                self.scanning = false;
+                if self.chats.is_empty() {
+                    self.status = "No business chats found".into();
+                    self.hint = "Only chats delivered in WhatsApp history sync are checked".into();
+                }
             }
             SessionEvent::LoggedOut => {
                 self.qr = None;
@@ -68,6 +94,93 @@ impl Render for WhatsappCleaner {
                     .rounded_xl()
                     .child(img(ImageSource::Render(qr.clone())).size(px(360.0))),
             );
+        } else if !self.chats.is_empty() {
+            let mut list = div()
+                .id("business-chats")
+                .flex()
+                .flex_col()
+                .gap_2()
+                .w(px(560.0))
+                .max_h(px(400.0))
+                .overflow_scroll();
+
+            for chat in &self.chats {
+                let initial = chat
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_else(|| "?".into());
+
+                let mut row = div()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap_3()
+                    .w_full()
+                    .p_3()
+                    .rounded_lg()
+                    .bg(rgb(0x202c33));
+
+                if let Some(avatar) = &chat.avatar {
+                    row = row.child(
+                        div()
+                            .size(px(48.0))
+                            .rounded_full()
+                            .overflow_hidden()
+                            .child(img(ImageSource::Render(avatar.clone())).size(px(48.0))),
+                    );
+                } else {
+                    row = row.child(
+                        div()
+                            .size(px(48.0))
+                            .rounded_full()
+                            .bg(rgb(0x005c4b))
+                            .flex()
+                            .justify_center()
+                            .items_center()
+                            .text_lg()
+                            .child(initial),
+                    );
+                }
+
+                let mut details = div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .child(div().child(chat.name.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x8696a0))
+                            .child(chat.jid.clone()),
+                    );
+
+                if !chat.category.is_empty() {
+                    details = details.child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x00a884))
+                            .child(chat.category.clone()),
+                    );
+                }
+
+                if !chat.description.is_empty() {
+                    details = details.child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0xd1d7db))
+                            .child(chat.description.clone()),
+                    );
+                }
+
+                row = row.child(details);
+                list = list.child(row);
+            }
+
+            panel = panel.child(list);
         }
 
         panel = panel.child(div().text_lg().child(self.status.clone()));
@@ -78,6 +191,15 @@ impl Render for WhatsappCleaner {
                     .text_sm()
                     .text_color(rgb(0x8696a0))
                     .child(self.hint.clone()),
+            );
+        }
+
+        if self.scanning {
+            panel = panel.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x8696a0))
+                    .child("Scanning chats from history sync…"),
             );
         }
 
