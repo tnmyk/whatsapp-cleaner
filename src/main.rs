@@ -330,7 +330,6 @@ impl Render for WhatsappCleaner {
                 })
                 .collect();
             let count = visible_chats.len();
-            let delete_enabled = !self.scanning;
             let subtitle: String = if self.scanning {
                 if self.total > 0 {
                     format!(
@@ -544,7 +543,7 @@ impl Render for WhatsappCleaner {
                     last_message_key: chat.last_message_key.clone(),
                 };
                 let delete_tx = self.commands.clone();
-                let mut delete_button = div()
+                let delete_button = div()
                     .id(format!("delete-{}", chat.jid))
                     .flex()
                     .items_center()
@@ -553,30 +552,20 @@ impl Render for WhatsappCleaner {
                     .py_2()
                     .rounded_lg()
                     .border_1()
-                    .border_color(if delete_enabled {
-                        rgb(0x5c2b32)
-                    } else {
-                        rgb(BORDER)
-                    })
+                    .border_color(rgb(0x5c2b32))
                     .text_sm()
-                    .text_color(if delete_enabled { rgb(DANGER) } else { rgb(MUTED) })
-                    .opacity(if delete_enabled { 1.0 } else { 0.5 });
-
-                if delete_enabled {
-                    delete_button = delete_button
-                        .cursor_pointer()
-                        .hover(|style| {
-                            style
-                                .bg(rgb(DANGER_SURFACE))
-                                .border_color(rgb(DANGER))
-                        })
-                        .on_click(move |_, _, _| {
-                            let _ = delete_tx
-                                .send(Command::DeleteChats(vec![delete_target.clone()]));
-                        });
-                }
-
-                delete_button = delete_button.child("Delete");
+                    .text_color(rgb(DANGER))
+                    .cursor_pointer()
+                    .hover(|style| {
+                        style
+                            .bg(rgb(DANGER_SURFACE))
+                            .border_color(rgb(DANGER))
+                    })
+                    .on_click(move |_, _, _| {
+                        let _ = delete_tx
+                            .send(Command::DeleteChats(vec![delete_target.clone()]));
+                    })
+                    .child("Delete");
 
                 row = row.child(details).child(delete_button);
                 list = list.child(row);
@@ -715,40 +704,26 @@ impl Render for WhatsappCleaner {
                             ),
                     );
 
-                let mut bulk_delete = div()
+                let bulk_delete = div()
                     .id("bulk-delete")
                     .px_4()
                     .py_2()
                     .rounded_lg()
                     .border_1()
-                    .border_color(if delete_enabled {
-                        rgb(0x5c2b32)
-                    } else {
-                        rgb(BORDER)
-                    })
+                    .border_color(rgb(0x5c2b32))
                     .text_sm()
-                    .text_color(if delete_enabled { rgb(DANGER) } else { rgb(MUTED) })
-                    .opacity(if delete_enabled { 1.0 } else { 0.5 });
-
-                if delete_enabled {
-                    bulk_delete = bulk_delete
-                        .cursor_pointer()
-                        .hover(|style| {
-                            style
-                                .bg(rgb(DANGER_SURFACE))
-                                .border_color(rgb(DANGER))
-                        })
-                        .on_click(move |_, _, _| {
-                            let _ = bulk_tx
-                                .send(Command::DeleteChats(selected_targets.clone()));
-                        });
-                }
-
-                bulk_delete = bulk_delete.child(if delete_enabled {
-                    "Delete selected"
-                } else {
-                    "Loading…"
-                });
+                    .text_color(rgb(DANGER))
+                    .cursor_pointer()
+                    .hover(|style| {
+                        style
+                            .bg(rgb(DANGER_SURFACE))
+                            .border_color(rgb(DANGER))
+                    })
+                    .on_click(move |_, _, _| {
+                        let _ = bulk_tx
+                            .send(Command::DeleteChats(selected_targets.clone()));
+                    })
+                    .child("Delete selected");
 
                 let bulk_bar = bulk_bar.child(bulk_delete);
                 body = body.child(bulk_bar);
