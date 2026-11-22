@@ -29,6 +29,10 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
+          add-job-id-key: false
+          cache-on-failure: true
 
       - name: Format check
         run: cargo fmt --all -- --check
