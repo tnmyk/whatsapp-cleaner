@@ -7,7 +7,7 @@ use std::sync::Arc;
 use gpui::{
     App, Bounds, Context, Entity, FontWeight, ImageSource, KeyBinding, RenderImage, SharedString,
     Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, prelude::*, px,
-    relative, rgb, size,
+    relative, rgb, rgba, size,
 };
 use gpui_platform::application;
 use text_input::{
@@ -27,6 +27,13 @@ const ACCENT: u32 = 0x00a884;
 const DANGER: u32 = 0xf15c6d;
 const DANGER_SURFACE: u32 = 0x2a1a1e;
 
+#[derive(Clone)]
+struct FailedDelete {
+    target: DeleteTarget,
+    name: String,
+    error: String,
+}
+
 struct WhatsappCleaner {
     qr: Option<Arc<RenderImage>>,
     status: SharedString,
@@ -36,6 +43,8 @@ struct WhatsappCleaner {
     search_input: Entity<text_input::TextInput>,
     _search_subscription: Subscription,
     commands: mpsc::UnboundedSender<Command>,
+    pending_delete: Option<Vec<DeleteTarget>>,
+    failed_delete: Option<FailedDelete>,
     checked: usize,
     total: usize,
     scanning: bool,
@@ -57,6 +66,8 @@ impl WhatsappCleaner {
             search_input,
             _search_subscription,
             commands,
+            pending_delete: None,
+            failed_delete: None,
             checked: 0,
             total: 0,
             scanning: false,
@@ -107,6 +118,13 @@ impl WhatsappCleaner {
                 self.selected.remove(&jid);
                 self.hint = "".into();
                 self.error = false;
+                if self
+                    .failed_delete
+                    .as_ref()
+                    .is_some_and(|failed| failed.target.jid == jid)
+                {
+                    self.failed_delete = None;
+                }
 
                 if self.chats.is_empty() {
                     self.status = "No business chats left".into();
@@ -120,15 +138,18 @@ impl WhatsappCleaner {
                 }
             }
             SessionEvent::DeleteFailed { jid, error } => {
-                let name = self
-                    .chats
-                    .iter()
-                    .find(|chat| chat.jid == jid)
-                    .map(|chat| chat.name.clone())
-                    .unwrap_or(jid);
-                self.status = "Delete failed".into();
-                self.hint = format!("Couldn't delete {name}: {error}").into();
-                self.error = true;
+                if let Some(chat) = self.chats.iter().find(|chat| chat.jid == jid) {
+                    self.failed_delete = Some(FailedDelete {
+                        target: DeleteTarget {
+                            jid: chat.jid.clone(),
+                            last_message_timestamp: chat.last_message_timestamp,
+                            last_message_key: chat.last_message_key.clone(),
+                        },
+                        name: chat.name.clone(),
+                        error,
+                    });
+                }
+                self.error = false;
             }
             SessionEvent::ScanComplete => {
                 self.scanning = false;
@@ -659,6 +680,91 @@ impl Render for WhatsappCleaner {
 
             body = body.child(search_bar);
 
+            if let Some(failed) = self.failed_delete.clone() {
+                let retry_target = failed.target.clone();
+                body = body.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_4()
+                        .w(px(760.0))
+                        .mb_3()
+                        .px_4()
+                        .py_3()
+                        .rounded_xl()
+                        .bg(rgb(DANGER_SURFACE))
+                        .border_1()
+                        .border_color(rgb(0x5c2b32))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgb(DANGER))
+                                        .child(format!("Couldn't delete {}", failed.name)),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(MUTED))
+                                        .line_clamp(2)
+                                        .child(failed.error.clone()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .child(
+                                    div()
+                                        .id("dismiss-delete-error")
+                                        .text_xs()
+                                        .text_color(rgb(MUTED))
+                                        .cursor_pointer()
+                                        .hover(|style| style.text_color(rgb(TEXT)))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.failed_delete = None;
+                                            cx.notify();
+                                        }))
+                                        .child("Dismiss"),
+                                )
+                                .child(
+                                    div()
+                                        .id("retry-delete")
+                                        .px_3()
+                                        .py_2()
+                                        .rounded_lg()
+                                        .border_1()
+                                        .border_color(rgb(0x5c2b32))
+                                        .text_xs()
+                                        .text_color(rgb(DANGER))
+                                        .cursor_pointer()
+                                        .hover(|style| {
+                                            style
+                                                .bg(rgb(DANGER_SURFACE))
+                                                .border_color(rgb(DANGER))
+                                        })
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.failed_delete = None;
+                                            let _ = this.commands.send(Command::DeleteChats(
+                                                vec![retry_target.clone()],
+                                            ));
+                                            cx.notify();
+                                        }))
+                                        .child("Retry"),
+                                ),
+                        ),
+                );
+            }
+
             if !self.selected.is_empty() {
                 let selected_count = self.selected.len();
                 let selected_targets: Vec<DeleteTarget> = self
@@ -671,7 +777,6 @@ impl Render for WhatsappCleaner {
                         last_message_key: chat.last_message_key.clone(),
                     })
                     .collect();
-                let bulk_tx = self.commands.clone();
                 let bulk_bar = div()
                     .flex()
                     .items_center()
@@ -726,10 +831,10 @@ impl Render for WhatsappCleaner {
                             .bg(rgb(DANGER_SURFACE))
                             .border_color(rgb(DANGER))
                     })
-                    .on_click(move |_, _, _| {
-                        let _ = bulk_tx
-                            .send(Command::DeleteChats(selected_targets.clone()));
-                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.pending_delete = Some(selected_targets.clone());
+                        cx.notify();
+                    }))
                     .child("Delete selected");
 
                 let bulk_bar = bulk_bar.child(bulk_delete);
@@ -749,6 +854,91 @@ impl Render for WhatsappCleaner {
             }
         }
 
+        let confirm_overlay = self.pending_delete.as_ref().map(|targets| {
+            let count = targets.len();
+
+            div()
+                .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .size_full()
+                .bg(rgba(0x000000aa))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .w(px(470.0))
+                        .p_6()
+                        .rounded_xl()
+                        .bg(rgb(SURFACE))
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .flex()
+                        .flex_col()
+                        .gap_4()
+                        .child(
+                            div()
+                                .text_xl()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(format!("Delete {count} chat{}?", if count == 1 { "" } else { "s" })),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(MUTED))
+                                .child(
+                                    "This removes the conversations and their media from your WhatsApp account. This cannot be undone.",
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .justify_end()
+                                .gap_3()
+                                .mt_2()
+                                .child(
+                                    div()
+                                        .id("cancel-bulk-delete")
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_lg()
+                                        .border_1()
+                                        .border_color(rgb(BORDER))
+                                        .text_sm()
+                                        .text_color(rgb(TEXT))
+                                        .cursor_pointer()
+                                        .hover(|style| style.bg(rgb(CARD)))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.pending_delete = None;
+                                            cx.notify();
+                                        }))
+                                        .child("Cancel"),
+                                )
+                                .child(
+                                    div()
+                                        .id("confirm-bulk-delete")
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_lg()
+                                        .bg(rgb(DANGER))
+                                        .text_sm()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgb(BG))
+                                        .cursor_pointer()
+                                        .hover(|style| style.opacity(0.85))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            if let Some(targets) = this.pending_delete.take() {
+                                                let _ = this.commands.send(Command::DeleteChats(targets));
+                                            }
+                                            cx.notify();
+                                        }))
+                                        .child(format!("Delete {count}")),
+                                ),
+                        ),
+                )
+        });
+
         let progress_ratio = if self.total > 0 {
             (self.checked as f32 / self.total as f32).clamp(0.0, 1.0)
         } else {
@@ -767,6 +957,7 @@ impl Render for WhatsappCleaner {
             );
 
         div()
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -775,6 +966,7 @@ impl Render for WhatsappCleaner {
             .child(header)
             .when(show_progress, |this| this.child(progress_bar))
             .child(body)
+            .when_some(confirm_overlay, |this, overlay| this.child(overlay))
     }
 }
 
