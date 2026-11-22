@@ -157,10 +157,26 @@ impl Render for WhatsappCleaner {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let status_color = if self.error {
             rgb(DANGER)
-        } else if self.qr.is_some() || self.scanning {
+        } else if self.qr.is_some() || self.scanning || !self.chats.is_empty() {
             rgb(ACCENT)
         } else {
             rgb(MUTED)
+        };
+
+        let header_label: SharedString = if self.qr.is_some() {
+            "Waiting for link".into()
+        } else if self.error {
+            self.status.clone()
+        } else if self.scanning {
+            if self.total > 0 {
+                format!("Scanning · {} of {}", self.checked, self.total).into()
+            } else {
+                "Scanning chats…".into()
+            }
+        } else if !self.chats.is_empty() {
+            "Connected".into()
+        } else {
+            self.status.clone()
         };
 
         let header = div()
@@ -209,7 +225,7 @@ impl Render for WhatsappCleaner {
                             .text_xs()
                             .text_color(rgb(MUTED))
                             .truncate()
-                            .child(self.status.clone()),
+                            .child(header_label),
                     ),
             );
 
@@ -331,16 +347,7 @@ impl Render for WhatsappCleaner {
                 .collect();
             let count = visible_chats.len();
             let subtitle: String = if self.scanning {
-                if self.total > 0 {
-                    format!(
-                        "Checked {} of {} chats · {} pending",
-                        self.checked,
-                        self.total,
-                        self.total.saturating_sub(self.checked)
-                    )
-                } else {
-                    "Checking chats from history sync…".to_string()
-                }
+                "From your WhatsApp history sync".to_string()
             } else if self.total > 0 {
                 format!("{} chats checked", self.total)
             } else {
