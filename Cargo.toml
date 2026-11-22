@@ -2,6 +2,11 @@
 name = "whatsapp-cleaner"
 version = "0.1.0"
 edition = "2024"
+description = "Find and delete WhatsApp business chats from a desktop app"
+readme = "README.md"
+repository = "https://github.com/tnmyk/whatsapp-cleaner"
+keywords = ["whatsapp", "gpui", "desktop", "cleanup"]
+categories = ["gui", "command-line-utilities"]
 
 [dependencies]
 gpui = { package = "gpui-pre", version = "0.3.13" }

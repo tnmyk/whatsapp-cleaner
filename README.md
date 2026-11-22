@@ -4,6 +4,62 @@ A desktop app for finding and deleting business chats from your WhatsApp account
 
 ![WhatsApp Cleaner](./assets/screenshot.png)
 
+## Install
+
+macOS only for now. Release assets are currently built for Apple Silicon (arm64).
+
+### Download the app
+
+1. Open [Releases](https://github.com/tnmyk/whatsapp-cleaner/releases).
+2. Download `WhatsApp-Cleaner-<version>-macos-<arch>.zip` (for example, `WhatsApp-Cleaner-0.1.0-macos-arm64.zip`).
+3. Unzip it and drag `WhatsApp Cleaner.app` into Applications.
+
+The release build is unsigned, so the first launch may be blocked by Gatekeeper. Either right-click the app and choose **Open**, or remove the quarantine attribute:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/WhatsApp Cleaner.app"
+```
+
+Only bypass Gatekeeper for a release you trust.
+
+### Download the standalone binary
+
+Each release also ships `whatsapp-cleaner-<version>-macos-<arch>.tar.gz`, containing the binary and this README:
+
+```sh
+tar -xzf whatsapp-cleaner-<version>-macos-<arch>.tar.gz
+mkdir -p ~/.local/bin
+mv whatsapp-cleaner ~/.local/bin/
+```
+
+Make sure `~/.local/bin` is on your `PATH`, then run `whatsapp-cleaner`.
+
+### cargo install from git
+
+```sh
+cargo install --git https://github.com/tnmyk/whatsapp-cleaner
+whatsapp-cleaner
+```
+
+This installs the binary into `~/.cargo/bin`.
+
+## Build from source
+
+Requires a recent stable Rust toolchain on macOS.
+
+```sh
+git clone https://github.com/tnmyk/whatsapp-cleaner.git
+cd whatsapp-cleaner
+cargo build --release
+./target/release/whatsapp-cleaner
+```
+
+`cargo run` works too. To build the distributable macOS app bundle and archives locally, run `./scripts/package-macos.sh`; assets are written to `dist/`.
+
+## Pairing
+
+Scan the QR from **WhatsApp → Settings → Linked devices → Link a device**.
+
 ## What it does
 
 - Links to WhatsApp by QR code
@@ -18,16 +74,6 @@ A desktop app for finding and deleting business chats from your WhatsApp account
 - [GPUI](https://gpui.rs) — GPU-accelerated UI (`gpui-pre` snapshots)
 - [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) — WhatsApp Web client
 - `qrcode` + `image` — QR pairing and avatars
-
-## Run
-
-```sh
-cargo run
-```
-
-Scan the QR from **WhatsApp → Settings → Linked devices → Link a device**.
-
-Requires a recent stable Rust toolchain on macOS.
 
 ## Notes
 
