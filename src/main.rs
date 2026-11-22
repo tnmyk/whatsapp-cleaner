@@ -6,10 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt as _, App, Bounds, Context, Entity, FontWeight, ImageSource, KeyBinding,
-    RenderImage, SharedString,
-    Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, prelude::*, px,
-    relative, rgb, rgba, size,
+    Animation, AnimationExt as _, App, Bounds, Context, Entity, FontWeight, ImageSource,
+    KeyBinding, RenderImage, SharedString, Subscription, TitlebarOptions, Window, WindowBounds,
+    WindowOptions, div, img, prelude::*, px, relative, rgb, rgba, size,
 };
 use gpui_platform::application;
 use text_input::{
@@ -418,12 +417,7 @@ impl Render for WhatsappCleaner {
                                 .text_color(rgb(ACCENT))
                                 .child("?"),
                         )
-                        .child(
-                            div()
-                                .text_lg()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(title),
-                        )
+                        .child(div().text_lg().font_weight(FontWeight::MEDIUM).child(title))
                         .child(
                             div()
                                 .text_sm()
@@ -440,13 +434,7 @@ impl Render for WhatsappCleaner {
             let visible_chats: Vec<&BusinessChat> = self
                 .chats
                 .iter()
-                .filter(|chat| {
-                    query.is_empty()
-                        || chat.name.to_lowercase().contains(&query)
-                        || chat.jid.contains(&query)
-                        || chat.category.to_lowercase().contains(&query)
-                        || chat.description.to_lowercase().contains(&query)
-                })
+                .filter(|chat| matches_query(chat, &query))
                 .collect();
             let count = visible_chats.len();
             let subtitle: String = if self.scanning {
@@ -461,11 +449,13 @@ impl Render for WhatsappCleaner {
                 && visible_chats
                     .iter()
                     .all(|chat| self.selected.contains(&chat.jid));
-            let select_label = if all_selected { "Clear all" } else { "Select all" };
-            let selectable_jids: Vec<String> = visible_chats
-                .iter()
-                .map(|chat| chat.jid.clone())
-                .collect();
+            let select_label = if all_selected {
+                "Clear all"
+            } else {
+                "Select all"
+            };
+            let selectable_jids: Vec<String> =
+                visible_chats.iter().map(|chat| chat.jid.clone()).collect();
             let select_all = div()
                 .id("select-all")
                 .text_xs()
@@ -473,13 +463,7 @@ impl Render for WhatsappCleaner {
                 .cursor_pointer()
                 .hover(|style| style.text_color(rgb(TEXT)))
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    if all_selected {
-                        for jid in &selectable_jids {
-                            this.selected.remove(jid);
-                        }
-                    } else {
-                        this.selected.extend(selectable_jids.iter().cloned());
-                    }
+                    select_all_visible(&mut this.selected, &selectable_jids, all_selected);
                     cx.notify();
                 }))
                 .child(select_label);
@@ -505,23 +489,16 @@ impl Render for WhatsappCleaner {
                         .child(div().text_sm().text_color(rgb(MUTED)).child(subtitle)),
                 )
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_4()
-                        .child(select_all)
-                        .child(
-                            div()
-                                .px_3()
-                                .py_1()
-                                .rounded_full()
-                                .bg(rgb(0x005c4b))
-                                .text_xs()
-                                .text_color(rgb(TEXT))
-                                .child(format!(
-                                    "{count} found",
-                                )),
-                        ),
+                    div().flex().items_center().gap_4().child(select_all).child(
+                        div()
+                            .px_3()
+                            .py_1()
+                            .rounded_full()
+                            .bg(rgb(0x005c4b))
+                            .text_xs()
+                            .text_color(rgb(TEXT))
+                            .child(format!("{count} found",)),
+                    ),
                 );
 
             let mut list = div()
@@ -562,11 +539,7 @@ impl Render for WhatsappCleaner {
                         .size(px(22.0))
                         .rounded_md()
                         .border_1()
-                        .border_color(if checked {
-                            rgb(ACCENT)
-                        } else {
-                            rgb(0x3b4a54)
-                        })
+                        .border_color(if checked { rgb(ACCENT) } else { rgb(0x3b4a54) })
                         .bg(if checked { rgb(ACCENT) } else { rgb(CARD) })
                         .flex()
                         .items_center()
@@ -666,14 +639,9 @@ impl Render for WhatsappCleaner {
                     .text_sm()
                     .text_color(rgb(DANGER))
                     .cursor_pointer()
-                    .hover(|style| {
-                        style
-                            .bg(rgb(DANGER_SURFACE))
-                            .border_color(rgb(DANGER))
-                    })
+                    .hover(|style| style.bg(rgb(DANGER_SURFACE)).border_color(rgb(DANGER)))
                     .on_click(move |_, _, _| {
-                        let _ = delete_tx
-                            .send(Command::DeleteChats(vec![delete_target.clone()]));
+                        let _ = delete_tx.send(Command::DeleteChats(vec![delete_target.clone()]));
                     })
                     .child("Delete");
 
@@ -713,11 +681,7 @@ impl Render for WhatsappCleaner {
             body = body.child(section);
 
             let has_query = !query.is_empty();
-            let search_focused = self
-                .search_input
-                .read(cx)
-                .focus_handle()
-                .is_focused(window);
+            let search_focused = self.search_input.read(cx).focus_handle().is_focused(window);
 
             let mut search_bar = div()
                 .id("search")
@@ -830,15 +794,13 @@ impl Render for WhatsappCleaner {
                                         .text_color(rgb(DANGER))
                                         .cursor_pointer()
                                         .hover(|style| {
-                                            style
-                                                .bg(rgb(DANGER_SURFACE))
-                                                .border_color(rgb(DANGER))
+                                            style.bg(rgb(DANGER_SURFACE)).border_color(rgb(DANGER))
                                         })
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             this.failed_delete = None;
-                                            let _ = this.commands.send(Command::DeleteChats(
-                                                vec![retry_target.clone()],
-                                            ));
+                                            let _ = this.commands.send(Command::DeleteChats(vec![
+                                                retry_target.clone(),
+                                            ]));
                                             cx.notify();
                                         }))
                                         .child("Retry"),
@@ -849,16 +811,7 @@ impl Render for WhatsappCleaner {
 
             if !self.selected.is_empty() {
                 let selected_count = self.selected.len();
-                let selected_targets: Vec<DeleteTarget> = self
-                    .chats
-                    .iter()
-                    .filter(|chat| self.selected.contains(&chat.jid))
-                    .map(|chat| DeleteTarget {
-                        jid: chat.jid.clone(),
-                        last_message_timestamp: chat.last_message_timestamp,
-                        last_message_key: chat.last_message_key.clone(),
-                    })
-                    .collect();
+                let selected_targets = delete_targets_for_selection(&self.chats, &self.selected);
                 let bulk_bar = div()
                     .flex()
                     .items_center()
@@ -908,11 +861,7 @@ impl Render for WhatsappCleaner {
                     .text_sm()
                     .text_color(rgb(DANGER))
                     .cursor_pointer()
-                    .hover(|style| {
-                        style
-                            .bg(rgb(DANGER_SURFACE))
-                            .border_color(rgb(DANGER))
-                    })
+                    .hover(|style| style.bg(rgb(DANGER_SURFACE)).border_color(rgb(DANGER)))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.pending_delete = Some(selected_targets.clone());
                         cx.notify();
@@ -1031,12 +980,7 @@ impl Render for WhatsappCleaner {
             .w_full()
             .h(px(4.0))
             .bg(rgb(SURFACE))
-            .child(
-                div()
-                    .h_full()
-                    .w(relative(progress_ratio))
-                    .bg(rgb(ACCENT)),
-            );
+            .child(div().h_full().w(relative(progress_ratio)).bg(rgb(ACCENT)));
 
         div()
             .relative()
@@ -1078,6 +1022,43 @@ fn qr_render_image(data: &str) -> Option<RenderImage> {
     Some(RenderImage::new(vec![image::Frame::new(canvas)]))
 }
 
+fn matches_query(chat: &BusinessChat, query_lower: &str) -> bool {
+    query_lower.is_empty()
+        || chat.name.to_lowercase().contains(query_lower)
+        || chat.jid.to_lowercase().contains(query_lower)
+        || chat.category.to_lowercase().contains(query_lower)
+        || chat.description.to_lowercase().contains(query_lower)
+}
+
+fn select_all_visible(
+    selected: &mut HashSet<String>,
+    visible_jids: &[String],
+    all_visible_selected: bool,
+) {
+    if all_visible_selected {
+        for jid in visible_jids {
+            selected.remove(jid);
+        }
+    } else {
+        selected.extend(visible_jids.iter().cloned());
+    }
+}
+
+fn delete_targets_for_selection(
+    chats: &[BusinessChat],
+    selected: &HashSet<String>,
+) -> Vec<DeleteTarget> {
+    chats
+        .iter()
+        .filter(|chat| selected.contains(&chat.jid))
+        .map(|chat| DeleteTarget {
+            jid: chat.jid.clone(),
+            last_message_timestamp: chat.last_message_timestamp,
+            last_message_key: chat.last_message_key.clone(),
+        })
+        .collect()
+}
+
 fn main() {
     let (events_tx, events_rx) = mpsc::unbounded_channel();
     let (commands_tx, commands_rx) = mpsc::unbounded_channel();
@@ -1097,11 +1078,7 @@ fn main() {
             KeyBinding::new("cmd-x", Cut, Some("TextInput")),
             KeyBinding::new("home", Home, Some("TextInput")),
             KeyBinding::new("end", End, Some("TextInput")),
-            KeyBinding::new(
-                "ctrl-cmd-space",
-                ShowCharacterPalette,
-                Some("TextInput"),
-            ),
+            KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, Some("TextInput")),
         ]);
 
         let bounds = Bounds::centered(None, size(px(1100.0), px(760.0)), cx);
@@ -1134,4 +1111,228 @@ fn main() {
         .expect("failed to open window");
         cx.activate(true);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chat(
+        jid: &str,
+        name: &str,
+        description: &str,
+        category: &str,
+        last_message_timestamp: i64,
+    ) -> BusinessChat {
+        BusinessChat {
+            jid: jid.to_string(),
+            name: name.to_string(),
+            description: description.to_string(),
+            category: category.to_string(),
+            avatar: None,
+            last_message_timestamp,
+            last_message_key: None,
+        }
+    }
+
+    fn jids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn matches_query_matches_name() {
+        let chat = chat("15551234567@s.whatsapp.net", "Acme Bakery", "", "", 0);
+
+        assert!(matches_query(&chat, "acme"));
+        assert!(matches_query(&chat, "bakery"));
+    }
+
+    #[test]
+    fn matches_query_matches_category() {
+        let chat = chat("15551234567@s.whatsapp.net", "Acme", "", "Bakery", 0);
+
+        assert!(matches_query(&chat, "bakery"));
+    }
+
+    #[test]
+    fn matches_query_matches_jid() {
+        let chat = chat("15551234567@s.whatsapp.net", "Acme", "", "", 0);
+
+        assert!(matches_query(&chat, "15551234567"));
+    }
+
+    #[test]
+    fn matches_query_matches_description() {
+        let chat = chat(
+            "15551234567@s.whatsapp.net",
+            "Acme",
+            "Fresh bread every morning",
+            "",
+            0,
+        );
+
+        assert!(matches_query(&chat, "fresh bread"));
+    }
+
+    #[test]
+    fn matches_query_is_case_insensitive() {
+        let chat = chat(
+            "15551234567@s.whatsapp.net",
+            "Acme Bakery",
+            "Fresh Bread",
+            "Food",
+            0,
+        );
+
+        assert!(matches_query(&chat, "acme"));
+        assert!(matches_query(&chat, "fresh bread"));
+        assert!(matches_query(&chat, "food"));
+    }
+
+    #[test]
+    fn matches_query_empty_query_matches_everything() {
+        let chat = chat("15551234567@s.whatsapp.net", "Acme", "", "", 0);
+
+        assert!(matches_query(&chat, ""));
+    }
+
+    #[test]
+    fn matches_query_rejects_non_match() {
+        let chat = chat(
+            "15551234567@s.whatsapp.net",
+            "Acme Bakery",
+            "Fresh bread",
+            "Food",
+            0,
+        );
+
+        assert!(!matches_query(&chat, "hardware"));
+    }
+
+    #[test]
+    fn select_all_visible_selects_only_visible_jids() {
+        let mut selected = HashSet::new();
+        let visible = jids(&["a@s.whatsapp.net", "b@s.whatsapp.net"]);
+
+        select_all_visible(&mut selected, &visible, false);
+
+        assert_eq!(selected.len(), 2);
+        assert!(selected.contains("a@s.whatsapp.net"));
+        assert!(selected.contains("b@s.whatsapp.net"));
+    }
+
+    #[test]
+    fn select_all_visible_preserves_hidden_selections_when_selecting() {
+        let mut selected = HashSet::from(["hidden@s.whatsapp.net".to_string()]);
+        let visible = jids(&["a@s.whatsapp.net"]);
+
+        select_all_visible(&mut selected, &visible, false);
+
+        assert!(selected.contains("hidden@s.whatsapp.net"));
+        assert!(selected.contains("a@s.whatsapp.net"));
+    }
+
+    #[test]
+    fn select_all_visible_clears_visible_but_leaves_hidden_selected() {
+        let mut selected = HashSet::from([
+            "a@s.whatsapp.net".to_string(),
+            "b@s.whatsapp.net".to_string(),
+            "hidden@s.whatsapp.net".to_string(),
+        ]);
+        let visible = jids(&["a@s.whatsapp.net", "b@s.whatsapp.net"]);
+
+        select_all_visible(&mut selected, &visible, true);
+
+        assert!(!selected.contains("a@s.whatsapp.net"));
+        assert!(!selected.contains("b@s.whatsapp.net"));
+        assert!(selected.contains("hidden@s.whatsapp.net"));
+        assert_eq!(selected.len(), 1);
+    }
+
+    #[test]
+    fn select_all_visible_does_not_touch_unrelated_jids() {
+        let mut selected = HashSet::from(["unrelated@s.whatsapp.net".to_string()]);
+        let visible = jids(&["a@s.whatsapp.net"]);
+
+        select_all_visible(&mut selected, &visible, true);
+
+        assert_eq!(
+            selected,
+            HashSet::from(["unrelated@s.whatsapp.net".to_string()])
+        );
+    }
+
+    #[test]
+    fn delete_targets_for_selection_only_returns_selected_chats() {
+        let chats = vec![
+            chat("a@s.whatsapp.net", "A", "", "", 10),
+            chat("b@s.whatsapp.net", "B", "", "", 20),
+            chat("c@s.whatsapp.net", "C", "", "", 30),
+        ];
+        let selected = HashSet::from([
+            "a@s.whatsapp.net".to_string(),
+            "c@s.whatsapp.net".to_string(),
+        ]);
+
+        let targets = delete_targets_for_selection(&chats, &selected);
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].jid, "a@s.whatsapp.net");
+        assert_eq!(targets[1].jid, "c@s.whatsapp.net");
+    }
+
+    #[test]
+    fn delete_targets_for_selection_preserves_chat_order() {
+        let chats = vec![
+            chat("a@s.whatsapp.net", "A", "", "", 10),
+            chat("b@s.whatsapp.net", "B", "", "", 20),
+            chat("c@s.whatsapp.net", "C", "", "", 30),
+        ];
+        let selected = HashSet::from([
+            "c@s.whatsapp.net".to_string(),
+            "a@s.whatsapp.net".to_string(),
+        ]);
+
+        let targets = delete_targets_for_selection(&chats, &selected);
+
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.jid.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a@s.whatsapp.net", "c@s.whatsapp.net"]
+        );
+    }
+
+    #[test]
+    fn delete_targets_for_selection_keeps_timestamp() {
+        let chats = vec![chat("a@s.whatsapp.net", "A", "", "", 1234)];
+        let selected = HashSet::from(["a@s.whatsapp.net".to_string()]);
+
+        let targets = delete_targets_for_selection(&chats, &selected);
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].last_message_timestamp, 1234);
+    }
+
+    #[test]
+    fn delete_targets_for_selection_empty_when_nothing_selected() {
+        let chats = vec![chat("a@s.whatsapp.net", "A", "", "", 10)];
+
+        let targets = delete_targets_for_selection(&chats, &HashSet::new());
+
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn qr_render_image_produces_square_pixels() {
+        let image = qr_render_image("https://example.com/qr-sample-payload")
+            .expect("sample payload should render as a QR image");
+        let size = image.size(0);
+
+        assert!(size.width.0 > 0);
+        assert!(size.height.0 > 0);
+        assert_eq!(size.width, size.height);
+        assert!(!image.as_bytes(0).expect("first frame exists").is_empty());
+    }
 }

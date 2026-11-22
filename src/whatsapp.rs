@@ -49,11 +49,17 @@ pub enum SessionEvent {
     Error(String),
 }
 
-pub fn spawn(tx: UnboundedSender<SessionEvent>, commands: tokio::sync::mpsc::UnboundedReceiver<Command>) {
+pub fn spawn(
+    tx: UnboundedSender<SessionEvent>,
+    commands: tokio::sync::mpsc::UnboundedReceiver<Command>,
+) {
     std::thread::Builder::new()
         .name("whatsapp".into())
         .spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            let runtime = match tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+            {
                 Ok(runtime) => runtime,
                 Err(error) => {
                     let _ = tx.send(SessionEvent::Error(error.to_string()));
@@ -447,5 +453,165 @@ fn conversation_chat(
         }
     }
 
-    Some((jid.into_non_ad(), name, last_message_timestamp, last_message_key))
+    Some((
+        jid.into_non_ad(),
+        name,
+        last_message_timestamp,
+        last_message_key,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::conversation_chat;
+    use whatsapp_rust::prelude::*;
+
+    fn conversation(id: &str) -> wa::Conversation {
+        let mut conversation = wa::Conversation::default();
+        conversation.id = id.to_string();
+        conversation
+    }
+
+    fn message_key(key_id: &str) -> wa::MessageKey {
+        let mut key = wa::MessageKey::default();
+        key.from_me = Some(true);
+        key.id = Some(key_id.to_string());
+        key
+    }
+
+    fn web_message_info(timestamp: u64, key_id: &str) -> wa::WebMessageInfo {
+        let mut message = wa::WebMessageInfo::default();
+        message.key = MessageField::some(message_key(key_id));
+        message.message_timestamp = Some(timestamp);
+        message
+    }
+
+    fn history_message(timestamp: u64, key_id: &str) -> wa::HistorySyncMsg {
+        let mut message = wa::HistorySyncMsg::default();
+        message.message = MessageField::some(web_message_info(timestamp, key_id));
+        message
+    }
+
+    #[test]
+    fn group_jid_is_skipped() {
+        assert!(conversation_chat(&conversation("123456789@g.us")).is_none());
+    }
+
+    #[test]
+    fn newsletter_status_and_broadcast_jids_are_skipped() {
+        for jid in [
+            "123456789@newsletter",
+            "status@broadcast",
+            "123456789@broadcast",
+        ] {
+            assert!(
+                conversation_chat(&conversation(jid)).is_none(),
+                "expected {jid} to be skipped"
+            );
+        }
+    }
+
+    #[test]
+    fn dm_prefers_pn_jid_over_lid_and_strips_device() {
+        let mut conversation = conversation("987654321@lid");
+        conversation.pn_jid = Some("15551234567:3@s.whatsapp.net".to_string());
+
+        let (jid, ..) = conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(jid.to_string(), "15551234567@s.whatsapp.net");
+    }
+
+    #[test]
+    fn dm_without_pn_jid_uses_lid_unchanged() {
+        let conversation = conversation("987654321@lid");
+
+        let (jid, ..) = conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(jid.to_string(), "987654321@lid");
+    }
+
+    #[test]
+    fn conversation_id_device_is_stripped() {
+        let conversation = conversation("15551234567:3@s.whatsapp.net");
+
+        let (jid, ..) = conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(jid.to_string(), "15551234567@s.whatsapp.net");
+    }
+
+    #[test]
+    fn display_name_is_preferred_over_name() {
+        let mut conversation = conversation("15551234567@s.whatsapp.net");
+        conversation.display_name = Some("Display Name".to_string());
+        conversation.name = Some("Fallback Name".to_string());
+
+        let (_, name, ..) = conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(name.as_deref(), Some("Display Name"));
+    }
+
+    #[test]
+    fn name_is_used_when_display_name_is_missing() {
+        let mut conversation = conversation("15551234567@s.whatsapp.net");
+        conversation.name = Some("Fallback Name".to_string());
+
+        let (_, name, ..) = conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(name.as_deref(), Some("Fallback Name"));
+    }
+
+    #[test]
+    fn name_is_none_when_display_name_and_name_are_empty() {
+        let mut conversation = conversation("15551234567@s.whatsapp.net");
+        conversation.display_name = Some(String::new());
+        conversation.name = Some(String::new());
+
+        let (_, name, ..) = conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(name, None);
+    }
+
+    #[test]
+    fn last_msg_timestamp_is_used_when_there_are_no_messages() {
+        let mut conversation = conversation("15551234567@s.whatsapp.net");
+        conversation.last_msg_timestamp = Some(1_700_000_000);
+        conversation.conversation_timestamp = Some(1_600_000_000);
+
+        let (_, _, timestamp, key) =
+            conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(timestamp, 1_700_000_000);
+        assert!(key.is_none());
+    }
+
+    #[test]
+    fn conversation_timestamp_is_used_when_last_msg_timestamp_is_missing() {
+        let mut conversation = conversation("15551234567@s.whatsapp.net");
+        conversation.conversation_timestamp = Some(1_600_000_000);
+
+        let (_, _, timestamp, key) =
+            conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(timestamp, 1_600_000_000);
+        assert!(key.is_none());
+    }
+
+    #[test]
+    fn latest_message_supplies_timestamp_and_key() {
+        let mut conversation = conversation("15551234567@s.whatsapp.net");
+        conversation.last_msg_timestamp = Some(100);
+        conversation.messages = vec![
+            history_message(200, "middle-key"),
+            history_message(500, "newest-key"),
+            history_message(400, "older-key"),
+        ];
+
+        let (_, _, timestamp, key) =
+            conversation_chat(&conversation).expect("DM should produce a chat");
+
+        assert_eq!(timestamp, 500);
+        let key = key.expect("latest message should supply a key");
+        assert_eq!(key.id.as_deref(), Some("newest-key"));
+        assert_eq!(key.from_me, Some(true));
+    }
 }
