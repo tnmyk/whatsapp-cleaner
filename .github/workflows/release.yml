@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build and Publish macOS Release
+  macos:
+    name: Build macOS
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +25,50 @@ jobs:
       - name: Package macOS artifacts
         run: VERSION="${GITHUB_REF_NAME#v}" ./scripts/package-macos.sh
 
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Package Windows artifacts
+        run: ./scripts/package-windows.ps1
+        env:
+          VERSION: ${{ github.ref_name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - macos
+      - windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-dist"
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.zip

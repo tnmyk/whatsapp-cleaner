@@ -6,15 +6,15 @@ A desktop app for finding and deleting business chats from your WhatsApp account
 
 ## Install
 
-macOS only for now. Release assets are currently built for Apple Silicon (arm64).
+Prebuilt releases: macOS (Apple Silicon) and Windows (x64). Both builds are unsigned.
 
-### Download the app
+### macOS app
 
 1. Open [Releases](https://github.com/tnmyk/whatsapp-cleaner/releases).
 2. Download `WhatsApp-Cleaner-<version>-macos-<arch>.zip` (for example, `WhatsApp-Cleaner-0.1.0-macos-arm64.zip`).
 3. Unzip it and drag `WhatsApp Cleaner.app` into Applications.
 
-The release build is unsigned, so the first launch may be blocked by Gatekeeper. Either right-click the app and choose **Open**, or remove the quarantine attribute:
+The build is unsigned, so the first launch may be blocked by Gatekeeper. Either right-click the app and choose **Open**, or remove the quarantine attribute:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/WhatsApp Cleaner.app"
@@ -22,7 +22,15 @@ xattr -dr com.apple.quarantine "/Applications/WhatsApp Cleaner.app"
 
 Only bypass Gatekeeper for a release you trust.
 
-### Download the standalone binary
+### Windows
+
+1. Open [Releases](https://github.com/tnmyk/whatsapp-cleaner/releases).
+2. Download `whatsapp-cleaner-<version>-windows-x86_64.zip`.
+3. Unzip it anywhere and run `whatsapp-cleaner.exe`.
+
+The build is unsigned, so SmartScreen may show “Windows protected your PC”. Choose **More info → Run anyway**. There is no installer yet; the app runs directly from the unzipped folder.
+
+### Standalone binary (macOS)
 
 Each release also ships `whatsapp-cleaner-<version>-macos-<arch>.tar.gz`, containing the binary and this README:
 
@@ -41,20 +49,33 @@ cargo install --git https://github.com/tnmyk/whatsapp-cleaner
 whatsapp-cleaner
 ```
 
-This installs the binary into `~/.cargo/bin`.
+This installs the binary into `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on Windows). Windows builds need the MSVC Rust toolchain plus Visual Studio C++ Build Tools.
 
 ## Build from source
 
-Requires a recent stable Rust toolchain on macOS.
+Requires a recent stable Rust toolchain. macOS additionally needs Xcode Command Line Tools; Windows needs the MSVC toolchain and Visual Studio C++ Build Tools.
 
 ```sh
 git clone https://github.com/tnmyk/whatsapp-cleaner.git
 cd whatsapp-cleaner
 cargo build --release
-./target/release/whatsapp-cleaner
 ```
 
-`cargo run` works too. To build the distributable macOS app bundle and archives locally, run `./scripts/package-macos.sh`; assets are written to `dist/`.
+Run it with:
+
+```sh
+./target/release/whatsapp-cleaner         # macOS
+.\target\release\whatsapp-cleaner.exe     # Windows
+```
+
+`cargo run` works too. To build distributable archives locally:
+
+```sh
+./scripts/package-macos.sh          # macOS .app zip + tar.gz
+./scripts/package-windows.ps1       # Windows .exe zip
+```
+
+Assets are written to `dist/`.
 
 ## Pairing
 

@@ -13,8 +13,14 @@ concurrency:
 
 jobs:
   check:
-    name: Check, Lint, Test
-    runs-on: macos-15
+    name: Check, Lint, Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-15
+          - windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -37,4 +43,4 @@ jobs:
         run: cargo test
 
       - name: Install check
-        run: cargo install --path . --debug --root "${RUNNER_TEMP}/cargo-install"
+        run: cargo install --path . --debug --root target/install-check
