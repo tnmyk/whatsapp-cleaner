@@ -6412,7 +6412,7 @@ dependencies = [
 
 [[package]]
 name = "whatsapp-cleaner"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gpui-pre",
  "gpui-pre-platform",

@@ -64,6 +64,11 @@ cat > "${INFO_PLIST}" <<PLIST
 </plist>
 PLIST
 
+# The release binary is linker-signed only. Sign the assembled bundle so its
+# Info.plist is bound to the signature; otherwise Gatekeeper reports the app as
+# damaged. Ad-hoc signing keeps this possible without an Apple Developer ID.
+codesign --force --sign - --identifier "com.tnmyk.whatsapp-cleaner" "${APP_DIR}"
+
 rm -f "${ZIP_PATH}" "${TAR_PATH}"
 ditto -c -k --norsrc --keepParent "${APP_DIR}" "${ZIP_PATH}"
 

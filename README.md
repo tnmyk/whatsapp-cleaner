@@ -22,6 +22,8 @@ xattr -dr com.apple.quarantine "/Applications/WhatsApp Cleaner.app"
 
 Only bypass Gatekeeper for a release you trust.
 
+If macOS says the app is **damaged**, you are using the broken `v0.1.0` macOS build. Download `v0.1.1` or later, which is ad-hoc signed so Gatekeeper shows the normal “unidentified developer” prompt instead.
+
 ### Windows
 
 1. Open [Releases](https://github.com/tnmyk/whatsapp-cleaner/releases).
