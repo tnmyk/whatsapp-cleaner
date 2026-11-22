@@ -6,52 +6,22 @@ A desktop app for finding and deleting business chats from your WhatsApp account
 
 ## Install
 
-Prebuilt releases: macOS (Apple Silicon) and Windows (x64). Both builds are unsigned.
-
-### macOS app
-
-1. Open [Releases](https://github.com/tnmyk/whatsapp-cleaner/releases).
-2. Download `WhatsApp-Cleaner-<version>-macos-<arch>.zip` (for example, `WhatsApp-Cleaner-0.1.0-macos-arm64.zip`).
-3. Unzip it and drag `WhatsApp Cleaner.app` into Applications.
-
-The build is unsigned, so the first launch may be blocked by Gatekeeper. Either right-click the app and choose **Open**, or remove the quarantine attribute:
-
-```sh
-xattr -dr com.apple.quarantine "/Applications/WhatsApp Cleaner.app"
-```
-
-Only bypass Gatekeeper for a release you trust.
-
-If macOS says the app is **damaged**, you are using the broken `v0.1.0` macOS build. Download `v0.1.1` or later, which is ad-hoc signed so Gatekeeper shows the normal “unidentified developer” prompt instead.
-
-### Windows
-
-1. Open [Releases](https://github.com/tnmyk/whatsapp-cleaner/releases).
-2. Download `whatsapp-cleaner-<version>-windows-x86_64.zip`.
-3. Unzip it anywhere and run `whatsapp-cleaner.exe`.
-
-The build is unsigned, so SmartScreen may show “Windows protected your PC”. Choose **More info → Run anyway**. There is no installer yet; the app runs directly from the unzipped folder.
-
-### Standalone binary (macOS)
-
-Each release also ships `whatsapp-cleaner-<version>-macos-<arch>.tar.gz`, containing the binary and this README:
-
-```sh
-tar -xzf whatsapp-cleaner-<version>-macos-<arch>.tar.gz
-mkdir -p ~/.local/bin
-mv whatsapp-cleaner ~/.local/bin/
-```
-
-Make sure `~/.local/bin` is on your `PATH`, then run `whatsapp-cleaner`.
-
-### cargo install from git
+### Recommended: cargo install
 
 ```sh
 cargo install --git https://github.com/tnmyk/whatsapp-cleaner
 whatsapp-cleaner
 ```
 
-This installs the binary into `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on Windows). Windows builds need the MSVC Rust toolchain plus Visual Studio C++ Build Tools.
+Installs into `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on Windows). macOS needs Xcode Command Line Tools; Windows needs the MSVC Rust toolchain and Visual Studio C++ Build Tools.
+
+### Prebuilt downloads
+
+Both builds are unsigned, so your OS may show a security prompt.
+
+**macOS (Apple Silicon):** download `WhatsApp-Cleaner-<version>-macos-arm64.zip` from [Releases](https://github.com/tnmyk/whatsapp-cleaner/releases), unzip, and drag `WhatsApp Cleaner.app` into Applications.
+
+**Windows (x64):** download `whatsapp-cleaner-<version>-windows-x86_64.zip` from [Releases](https://github.com/tnmyk/whatsapp-cleaner/releases), unzip, and run `whatsapp-cleaner.exe`. If SmartScreen appears, choose **More info → Run anyway**.
 
 ## Build from source
 
@@ -94,7 +64,7 @@ Scan the QR from **WhatsApp → Settings → Linked devices → Link a device**.
 
 ## Stack
 
-- [GPUI](https://gpui.rs) — GPU-accelerated UI (`gpui-pre` snapshots)
+- [GPUI](https://gpui.rs) — gpui-pre
 - [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) — WhatsApp Web client
 - `qrcode` + `image` — QR pairing and avatars
 
@@ -103,4 +73,3 @@ Scan the QR from **WhatsApp → Settings → Linked devices → Link a device**.
 - Sessions are intentionally ephemeral: the app starts unpaired every launch and stores nothing across runs.
 - Only chats delivered in WhatsApp history sync can appear.
 - Delete sends a `deleteChat` app-state mutation with the chat's last-message range, matching WhatsApp Web behavior. It removes the chat and its media from your account.
-- This project uses an unofficial WhatsApp client. Use at your own risk.
