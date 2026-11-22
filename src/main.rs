@@ -15,7 +15,7 @@ use text_input::{
     SelectRight, ShowCharacterPalette,
 };
 use tokio::sync::mpsc;
-use whatsapp::{BusinessChat, SessionEvent};
+use whatsapp::{BusinessChat, Command, DeleteTarget, SessionEvent};
 
 const BG: u32 = 0x0b141a;
 const SURFACE: u32 = 0x111b21;
@@ -35,6 +35,7 @@ struct WhatsappCleaner {
     selected: HashSet<String>,
     search_input: Entity<text_input::TextInput>,
     _search_subscription: Subscription,
+    commands: mpsc::UnboundedSender<Command>,
     checked: usize,
     total: usize,
     scanning: bool,
@@ -42,7 +43,7 @@ struct WhatsappCleaner {
 }
 
 impl WhatsappCleaner {
-    fn new(cx: &mut Context<Self>) -> Self {
+    fn new(cx: &mut Context<Self>, commands: mpsc::UnboundedSender<Command>) -> Self {
         let search_input =
             cx.new(|cx| text_input::TextInput::new("Search by name, category, or phone", cx));
         let _search_subscription = cx.observe(&search_input, |_, _, cx| cx.notify());
@@ -55,6 +56,7 @@ impl WhatsappCleaner {
             selected: HashSet::new(),
             search_input,
             _search_subscription,
+            commands,
             checked: 0,
             total: 0,
             scanning: false,
@@ -99,6 +101,34 @@ impl WhatsappCleaner {
                     if self.chats.len() == 1 { "" } else { "s" }
                 )
                 .into();
+            }
+            SessionEvent::ChatDeleted(jid) => {
+                self.chats.retain(|chat| chat.jid != jid);
+                self.selected.remove(&jid);
+                self.hint = "".into();
+                self.error = false;
+
+                if self.chats.is_empty() {
+                    self.status = "No business chats left".into();
+                } else {
+                    self.status = format!(
+                        "{} business chat{}",
+                        self.chats.len(),
+                        if self.chats.len() == 1 { "" } else { "s" }
+                    )
+                    .into();
+                }
+            }
+            SessionEvent::DeleteFailed { jid, error } => {
+                let name = self
+                    .chats
+                    .iter()
+                    .find(|chat| chat.jid == jid)
+                    .map(|chat| chat.name.clone())
+                    .unwrap_or(jid);
+                self.status = "Delete failed".into();
+                self.hint = format!("Couldn't delete {name}: {error}").into();
+                self.error = true;
             }
             SessionEvent::ScanComplete => {
                 self.scanning = false;
@@ -300,6 +330,7 @@ impl Render for WhatsappCleaner {
                 })
                 .collect();
             let count = visible_chats.len();
+            let delete_enabled = !self.scanning;
             let subtitle: String = if self.scanning {
                 if self.total > 0 {
                     format!(
@@ -507,7 +538,13 @@ impl Render for WhatsappCleaner {
                     );
                 }
 
-                let delete_button = div()
+                let delete_target = DeleteTarget {
+                    jid: chat.jid.clone(),
+                    last_message_timestamp: chat.last_message_timestamp,
+                    last_message_key: chat.last_message_key.clone(),
+                };
+                let delete_tx = self.commands.clone();
+                let mut delete_button = div()
                     .id(format!("delete-{}", chat.jid))
                     .flex()
                     .items_center()
@@ -516,17 +553,30 @@ impl Render for WhatsappCleaner {
                     .py_2()
                     .rounded_lg()
                     .border_1()
-                    .border_color(rgb(0x5c2b32))
-                    .text_sm()
-                    .text_color(rgb(DANGER))
-                    .cursor_pointer()
-                    .hover(|style| {
-                        style
-                            .bg(rgb(DANGER_SURFACE))
-                            .border_color(rgb(DANGER))
+                    .border_color(if delete_enabled {
+                        rgb(0x5c2b32)
+                    } else {
+                        rgb(BORDER)
                     })
-                    .on_click(|_, _, _| {})
-                    .child("Delete");
+                    .text_sm()
+                    .text_color(if delete_enabled { rgb(DANGER) } else { rgb(MUTED) })
+                    .opacity(if delete_enabled { 1.0 } else { 0.5 });
+
+                if delete_enabled {
+                    delete_button = delete_button
+                        .cursor_pointer()
+                        .hover(|style| {
+                            style
+                                .bg(rgb(DANGER_SURFACE))
+                                .border_color(rgb(DANGER))
+                        })
+                        .on_click(move |_, _, _| {
+                            let _ = delete_tx
+                                .send(Command::DeleteChats(vec![delete_target.clone()]));
+                        });
+                }
+
+                delete_button = delete_button.child("Delete");
 
                 row = row.child(details).child(delete_button);
                 list = list.child(row);
@@ -615,6 +665,17 @@ impl Render for WhatsappCleaner {
 
             if !self.selected.is_empty() {
                 let selected_count = self.selected.len();
+                let selected_targets: Vec<DeleteTarget> = self
+                    .chats
+                    .iter()
+                    .filter(|chat| self.selected.contains(&chat.jid))
+                    .map(|chat| DeleteTarget {
+                        jid: chat.jid.clone(),
+                        last_message_timestamp: chat.last_message_timestamp,
+                        last_message_key: chat.last_message_key.clone(),
+                    })
+                    .collect();
+                let bulk_tx = self.commands.clone();
                 let bulk_bar = div()
                     .flex()
                     .items_center()
@@ -652,27 +713,44 @@ impl Render for WhatsappCleaner {
                                     }))
                                     .child("Clear"),
                             ),
-                    )
-                    .child(
-                        div()
-                            .id("bulk-delete")
-                            .px_4()
-                            .py_2()
-                            .rounded_lg()
-                            .border_1()
-                            .border_color(rgb(0x5c2b32))
-                            .text_sm()
-                            .text_color(rgb(DANGER))
-                            .cursor_pointer()
-                            .hover(|style| {
-                                style
-                                    .bg(rgb(DANGER_SURFACE))
-                                    .border_color(rgb(DANGER))
-                            })
-                            .on_click(|_, _, _| {})
-                            .child("Delete selected"),
                     );
 
+                let mut bulk_delete = div()
+                    .id("bulk-delete")
+                    .px_4()
+                    .py_2()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(if delete_enabled {
+                        rgb(0x5c2b32)
+                    } else {
+                        rgb(BORDER)
+                    })
+                    .text_sm()
+                    .text_color(if delete_enabled { rgb(DANGER) } else { rgb(MUTED) })
+                    .opacity(if delete_enabled { 1.0 } else { 0.5 });
+
+                if delete_enabled {
+                    bulk_delete = bulk_delete
+                        .cursor_pointer()
+                        .hover(|style| {
+                            style
+                                .bg(rgb(DANGER_SURFACE))
+                                .border_color(rgb(DANGER))
+                        })
+                        .on_click(move |_, _, _| {
+                            let _ = bulk_tx
+                                .send(Command::DeleteChats(selected_targets.clone()));
+                        });
+                }
+
+                bulk_delete = bulk_delete.child(if delete_enabled {
+                    "Delete selected"
+                } else {
+                    "Loading…"
+                });
+
+                let bulk_bar = bulk_bar.child(bulk_delete);
                 body = body.child(bulk_bar);
             }
 
@@ -746,7 +824,8 @@ fn qr_render_image(data: &str) -> Option<RenderImage> {
 
 fn main() {
     let (events_tx, events_rx) = mpsc::unbounded_channel();
-    whatsapp::spawn(events_tx);
+    let (commands_tx, commands_rx) = mpsc::unbounded_channel();
+    whatsapp::spawn(events_tx, commands_rx);
 
     application().run(move |cx: &mut App| {
         cx.bind_keys([
@@ -781,7 +860,7 @@ fn main() {
                 ..Default::default()
             },
             move |_, cx| {
-                let view = cx.new(|cx| WhatsappCleaner::new(cx));
+                let view = cx.new(|cx| WhatsappCleaner::new(cx, commands_tx.clone()));
                 let task_view = view.clone();
                 let mut events_rx = events_rx;
                 cx.spawn(async move |cx| {

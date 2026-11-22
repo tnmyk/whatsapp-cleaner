@@ -66,6 +66,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aead"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1973cfbc1a2daf9cf550e74e1f088c28e7f7d8c1e1418fb6c9dc5184b7e84c99"
+dependencies = [
+ "crypto-common 0.2.2",
+ "inout 0.2.6",
+]
+
+[[package]]
 name = "aes"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -86,6 +96,20 @@ dependencies = [
  "cipher 0.5.2",
  "cpubits",
  "cpufeatures 0.3.1",
+]
+
+[[package]]
+name = "aes-gcm"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f2b8006a0c83f52b62ba44a97b58bf76fe2f70a329e588f67f89691d93d498f"
+dependencies = [
+ "aead",
+ "aes 0.9.4",
+ "cipher 0.5.2",
+ "ctr",
+ "ctutils",
+ "ghash",
 ]
 
 [[package]]
@@ -568,6 +592,12 @@ dependencies = [
  "quote",
  "syn 3.0.10",
 ]
+
+[[package]]
+name = "borrow-or-share"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
 
 [[package]]
 name = "buffa"
@@ -1142,32 +1172,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "curve25519-dalek"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5eed333089e2e1c1ac8c6c0398e5e2497b4c9926ca6d0365ed1e099afa5bc23"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.3.1",
- "curve25519-dalek-derive",
- "fiat-crypto",
- "rustc_version",
- "subtle",
- "zeroize",
-]
-
-[[package]]
-name = "curve25519-dalek-derive"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "darling"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1601,12 +1605,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fiat-crypto"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1634,6 +1632,17 @@ name = "float-ord"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ce81f49ae8a0482e4c55ea62ebbd7e5a686af544c00b9d090bba3ff9be97b3d"
+
+[[package]]
+name = "fluent-uri"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc74ac4d8359ae70623506d512209619e5cf8f347124910440dbc221714b328e"
+dependencies = [
+ "borrow-or-share",
+ "ref-cast",
+ "serde",
+]
 
 [[package]]
 name = "flume"
@@ -1930,6 +1939,18 @@ dependencies = [
  "khronos_api",
  "log",
  "xml-rs",
+]
+
+[[package]]
+name = "gloo-timers"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4460540da666acdb5722b2a62ac47d18f627fcfc0c728d04dc7226b3f6d40a7"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2996,7 +3017,6 @@ version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f111c8c41e7c61a49cd34e44c7619462967221a6443b0ec299e0ac30cfb9b1"
 dependencies = [
- "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -3142,12 +3162,6 @@ dependencies = [
  "cfg-if",
  "digest 0.10.7",
 ]
-
-[[package]]
-name = "md5"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
 
 [[package]]
 name = "memchr"
@@ -4789,6 +4803,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "send_wrapper"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
+dependencies = [
+ "futures-core",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5898,23 +5921,23 @@ dependencies = [
 [[package]]
 name = "wacore"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6139a98fece24956f1d6bf164c82c5daefb43834813d96a879b41e010707c2c2"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "aes 0.9.4",
  "anyhow",
  "async-channel",
  "async-lock",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bon",
  "buffa",
  "buffa-build",
  "bytes",
- "chrono",
+ "cbc 0.2.1",
  "compact_str",
  "ctr",
  "event-listener",
+ "fluent-uri",
  "futures",
  "hashbrown 0.17.1",
  "hex",
@@ -5922,7 +5945,6 @@ dependencies = [
  "hmac 0.13.0",
  "itoa",
  "log",
- "md5",
  "portable-atomic",
  "rand 0.10.4",
  "serde",
@@ -5946,8 +5968,7 @@ dependencies = [
 [[package]]
 name = "wacore-appstate"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5afb5372c68d1cda49b7e86a81a01302b7c71b78e8555178c7cf3be01f09ecc3"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "anyhow",
  "buffa",
@@ -5959,6 +5980,7 @@ dependencies = [
  "serde-big-array",
  "serde_json",
  "sha2 0.11.1",
+ "subtle",
  "thiserror 2.0.21",
  "wacore-binary",
  "wacore-libsignal",
@@ -5968,14 +5990,15 @@ dependencies = [
 [[package]]
 name = "wacore-binary"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e56452f93ac1e6167a6ebafec23971fe1ca9332b27cc887520f4a6753956fde"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "bytes",
  "compact_str",
+ "getrandom 0.4.3",
  "itoa",
  "serde",
  "serde_json",
+ "siphasher",
  "smallvec",
  "smoothutf8",
  "stable_deref_trait",
@@ -5986,8 +6009,7 @@ dependencies = [
 [[package]]
 name = "wacore-derive"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53cba66b01df4bef777c3d131af434dea0f3c8a7da2e42d7fb74e11fd65fb094"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5997,40 +6019,37 @@ dependencies = [
 [[package]]
 name = "wacore-libsignal"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbf8e90eebdf77703305089c1dfe672dddf203e0238e8f47163f76e7f9d5c713"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "aes 0.9.4",
+ "aes-gcm",
+ "arrayvec",
  "async-lock",
  "async-trait",
  "buffa",
  "bytes",
  "cbc 0.2.1",
- "chrono",
  "ctr",
- "curve25519-dalek",
- "ghash",
  "hex",
  "hkdf 0.13.0",
  "hmac 0.13.0",
+ "itoa",
  "log",
  "portable-atomic",
  "rand 0.10.4",
  "serde",
- "sha1",
  "sha2 0.11.1",
  "subtle",
  "thiserror 2.0.21",
- "wacore-derive",
+ "wacore-binary",
  "waproto",
- "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
 name = "wacore-noise"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a15b03c1e5e4bbf20d2d875c96649aaff82d149f025ae3a1421a1b6a9c426114"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "anyhow",
  "buffa",
@@ -6064,16 +6083,18 @@ dependencies = [
 [[package]]
 name = "waproto"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd19a927d4781e92382a478d234f74baeacb4822ceeb45c665bb9cb321622c35"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "buffa",
  "buffa-build",
  "buffa-descriptor",
  "bytes",
  "heck 0.5.0",
+ "prettyplease 0.3.0",
+ "quote",
  "serde",
  "sha2 0.11.1",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -6405,29 +6426,32 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cb354c32641cfe832bf5c5767a016762234c5efd1b4ce979e2b3e32175d96bc"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "anyhow",
  "async-channel",
  "async-lock",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
+ "bon",
  "buffa",
  "bytes",
- "chrono",
  "event-listener",
+ "flate2",
  "futures",
  "getrandom 0.4.3",
  "hashbrown 0.17.1",
  "hex",
+ "hmac 0.13.0",
  "itoa",
  "log",
  "portable-atomic",
  "rand 0.10.4",
  "scopeguard",
+ "send_wrapper",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "smallvec",
  "thiserror 2.0.21",
  "tokio",
@@ -6443,8 +6467,7 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust-sqlite-storage"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee70216db150b33c1c7cb01dc81e37f70b3edf8c24cebcd75a7ade5c011720d1"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "async-trait",
  "buffa",
@@ -6452,20 +6475,21 @@ dependencies = [
  "bytes",
  "diesel",
  "diesel_migrations",
- "libsqlite3-sys",
+ "gloo-timers",
  "log",
  "scheduled-thread-pool",
  "serde_json",
  "sha2 0.11.1",
+ "thiserror 2.0.21",
  "tokio",
  "wacore",
+ "wacore-binary",
 ]
 
 [[package]]
 name = "whatsapp-rust-tokio-transport"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02ae442f8a6e747c777225ce1808f2ce5311963cf2dccb17a1f304c749f01832"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -6485,8 +6509,7 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust-ureq-http-client"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ebb64db9f84faa5eddb851ba7f44566363523bbdb88d5772fcc7d168e177797"
+source = "git+https://github.com/oxidezap/whatsapp-rust?rev=1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba#1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7025,17 +7048,6 @@ checksum = "502da5464ccd04011667b11c435cb992822c2c0dbde1770c988480d312a0db2e"
 dependencies = [
  "libc",
  "pkg-config",
-]
-
-[[package]]
-name = "x25519-dalek"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7e8131a03190127fb2263afc72b322ecadae46b6ff8c6f399ff5d02f5559af6"
-dependencies = [
- "curve25519-dalek",
- "rand_core 0.10.1",
- "zeroize",
 ]
 
 [[package]]

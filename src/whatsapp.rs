@@ -7,6 +7,10 @@ use gpui::RenderImage;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
 use whatsapp_rust::prelude::*;
+use whatsapp_rust::{
+    AppStateResyncMode, MessageId, MessageRef, ProfilePictureRequest, ProfilePictureTarget,
+    ProfilePictureType, WAPatchName, message_range,
+};
 
 #[derive(Debug, Clone)]
 pub struct BusinessChat {
@@ -15,6 +19,20 @@ pub struct BusinessChat {
     pub description: String,
     pub category: String,
     pub avatar: Option<Arc<RenderImage>>,
+    pub last_message_timestamp: i64,
+    pub last_message_key: Option<wa::MessageKey>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeleteTarget {
+    pub jid: String,
+    pub last_message_timestamp: i64,
+    pub last_message_key: Option<wa::MessageKey>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Command {
+    DeleteChats(Vec<DeleteTarget>),
 }
 
 #[derive(Debug, Clone)]
@@ -24,12 +42,14 @@ pub enum SessionEvent {
     ScanStarted,
     ScanProgress { checked: usize, total: usize },
     BusinessChat(BusinessChat),
+    ChatDeleted(String),
+    DeleteFailed { jid: String, error: String },
     ScanComplete,
     LoggedOut,
     Error(String),
 }
 
-pub fn spawn(tx: UnboundedSender<SessionEvent>) {
+pub fn spawn(tx: UnboundedSender<SessionEvent>, commands: tokio::sync::mpsc::UnboundedReceiver<Command>) {
     std::thread::Builder::new()
         .name("whatsapp".into())
         .spawn(move || {
@@ -40,12 +60,15 @@ pub fn spawn(tx: UnboundedSender<SessionEvent>) {
                     return;
                 }
             };
-            runtime.block_on(run(tx));
+            runtime.block_on(run(tx, commands));
         })
         .expect("failed to spawn whatsapp thread");
 }
 
-async fn run(tx: UnboundedSender<SessionEvent>) {
+async fn run(
+    tx: UnboundedSender<SessionEvent>,
+    commands: tokio::sync::mpsc::UnboundedReceiver<Command>,
+) {
     // Ephemeral on-disk store: SQLite snapshots are unsupported for :memory:, so use a
     // fixed temp file that is wiped at startup. Every launch starts unpaired.
     let db_path = std::env::temp_dir().join("whatsapp-cleaner-session.db");
@@ -54,7 +77,7 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
         let _ = std::fs::remove_file(format!("{db_path_string}{suffix}"));
     }
 
-    let store = match SqliteStore::new(&db_path_string).await {
+    let store = match SqliteStore::open(&db_path_string).await {
         Ok(store) => store,
         Err(error) => {
             let _ = tx.send(SessionEvent::Error(error.to_string()));
@@ -116,11 +139,18 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
                 {
                     let mut seen_jids = seen_jids.lock().await;
                     for conversation in &history.conversations {
-                        let Some((jid, name)) = conversation_chat(conversation) else {
+                        let Some((jid, name, last_message_timestamp, last_message_key)) =
+                            conversation_chat(conversation)
+                        else {
                             continue;
                         };
                         if seen_jids.insert(jid.to_string()) {
-                            new_chats.push((jid, name));
+                            new_chats.push((
+                                jid,
+                                name,
+                                last_message_timestamp,
+                                last_message_key,
+                            ));
                         }
                     }
                 }
@@ -138,7 +168,7 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
                     // business flag, so profile IQs only go to likely businesses.
                     let mut user_info = std::collections::HashMap::new();
                     for chunk in new_chats.chunks(50) {
-                        let jids: Vec<Jid> = chunk.iter().map(|(jid, _)| jid.clone()).collect();
+                        let jids: Vec<Jid> = chunk.iter().map(|(jid, ..)| jid.clone()).collect();
                         match client.contacts().get_user_info(&jids).await {
                             Ok(infos) => {
                                 for (jid, info) in infos {
@@ -152,7 +182,9 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
                         tokio::time::sleep(Duration::from_millis(150)).await;
                     }
 
-                    for (jid, conversation_name) in new_chats {
+                    for (jid, conversation_name, last_message_timestamp, last_message_key) in
+                        new_chats
+                    {
                         let jid_string = jid.to_string();
                         let info = user_info.remove(&jid_string);
 
@@ -173,12 +205,16 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
                             match client.get_business_profile(&jid).await {
                                 Ok(Some(profile)) => {
                                     let avatar = match client
-                                        .contacts()
-                                        .get_profile_picture(&jid, true)
+                                        .pictures()
+                                        .lookup(ProfilePictureRequest::new(
+                                            ProfilePictureTarget::Contact(&jid),
+                                            ProfilePictureType::Preview,
+                                        ))
                                         .await
                                     {
-                                        Ok(Some(picture)) => fetch_avatar(&picture.url),
-                                        Ok(None) => None,
+                                        Ok(lookup) => lookup
+                                            .into_found()
+                                            .and_then(|picture| fetch_avatar(&picture.url)),
                                         Err(error) => {
                                             eprintln!(
                                                 "profile picture query failed for {jid_string}: {error}"
@@ -197,6 +233,8 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
                                             .map(|category| category.name.clone())
                                             .unwrap_or_default(),
                                         avatar,
+                                        last_message_timestamp,
+                                        last_message_key,
                                     }));
                                 }
                                 Ok(None) => {}
@@ -226,7 +264,133 @@ async fn run(tx: UnboundedSender<SessionEvent>) {
         .await;
 
     match bot {
-        Ok(bot) => bot.run().await,
+        Ok(bot) => {
+            let handle = bot.spawn();
+            let client = handle.client();
+
+            tokio::spawn(async move {
+                let mut commands = commands;
+                while let Some(command) = commands.recv().await {
+                    match command {
+                        Command::DeleteChats(jids) => {
+                            // Catch the local regular_high mirror up before writing.
+                            // The internal conflict loop can only rebuild against the
+                            // version this client knows; if bootstrap left it behind,
+                            // every attempt loses the same race.
+                            let mut caught_up = match client
+                                .resync_app_state(
+                                    [WAPatchName::RegularHigh],
+                                    AppStateResyncMode::Incremental,
+                                )
+                                .await
+                            {
+                                Ok(report) => report.all_synced(),
+                                Err(error) => {
+                                    eprintln!("app-state resync before delete failed: {error}");
+                                    false
+                                }
+                            };
+
+                            if !caught_up {
+                                match client
+                                    .resync_app_state(
+                                        [WAPatchName::RegularHigh],
+                                        AppStateResyncMode::Snapshot,
+                                    )
+                                    .await
+                                {
+                                    Ok(report) => {
+                                        caught_up = report.all_synced();
+                                        if !caught_up {
+                                            eprintln!(
+                                                "app-state snapshot rebuild still incomplete before delete"
+                                            );
+                                        }
+                                    }
+                                    Err(error) => {
+                                        eprintln!(
+                                            "app-state snapshot rebuild before delete failed: {error}"
+                                        );
+                                    }
+                                }
+                            }
+
+                            for target in jids {
+                                let jid_string = target.jid.clone();
+                                let Ok(jid) = jid_string.parse::<Jid>() else {
+                                    continue;
+                                };
+                                let timestamp = if target.last_message_timestamp > 0 {
+                                    target.last_message_timestamp
+                                } else {
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|elapsed| elapsed.as_secs() as i64)
+                                        .unwrap_or(0)
+                                };
+                                let mut messages = Vec::new();
+                                if let Some(key) = target.last_message_key.as_ref()
+                                    && let Some(id) = key.id.as_deref()
+                                    && let Ok(message_id) = MessageId::new(id)
+                                    && let Ok(reference) = MessageRef::new(
+                                        &jid,
+                                        message_id,
+                                        None,
+                                        key.from_me.unwrap_or(false),
+                                    )
+                                {
+                                    messages.push((reference, timestamp));
+                                }
+                                let range = message_range(timestamp, None, messages);
+
+                                // App-state version races outlive history sync: our patch
+                                // base keeps losing to other devices while the initial
+                                // syncd collection settles. Retry the whole send after a
+                                // backoff instead of surfacing the library's 5-attempt
+                                // internal conflict immediately.
+                                let mut last_error = String::new();
+                                let mut delay = Duration::from_secs(1);
+                                let mut deleted = false;
+
+                                for attempt in 0..4 {
+                                    match client
+                                        .chat_actions()
+                                        .delete_chat(&jid, true, Some(range.clone()))
+                                        .await
+                                    {
+                                        Ok(()) => {
+                                            deleted = true;
+                                            break;
+                                        }
+                                        Err(error) => {
+                                            last_error = error.to_string();
+                                            if !last_error.contains("still conflicting") {
+                                                break;
+                                            }
+                                            if attempt < 3 {
+                                                tokio::time::sleep(delay).await;
+                                                delay *= 2;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if deleted {
+                                    let _ = tx.send(SessionEvent::ChatDeleted(jid_string));
+                                } else {
+                                    let _ = tx.send(SessionEvent::DeleteFailed {
+                                        jid: jid_string,
+                                        error: last_error,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            handle.await;
+        }
         Err(error) => {
             let _ = tx.send(SessionEvent::Error(error.to_string()));
         }
@@ -243,7 +407,9 @@ fn fetch_avatar(url: &str) -> Option<Arc<RenderImage>> {
     Some(Arc::new(RenderImage::new(vec![image::Frame::new(decoded)])))
 }
 
-fn conversation_chat(conversation: &wa::Conversation) -> Option<(Jid, Option<String>)> {
+fn conversation_chat(
+    conversation: &wa::Conversation,
+) -> Option<(Jid, Option<String>, i64, Option<wa::MessageKey>)> {
     let raw_jid = conversation
         .pn_jid
         .as_deref()
@@ -262,5 +428,24 @@ fn conversation_chat(conversation: &wa::Conversation) -> Option<(Jid, Option<Str
         .filter(|name| !name.is_empty())
         .map(str::to_string);
 
-    Some((jid.into_non_ad(), name))
+    let mut last_message_timestamp = conversation
+        .last_msg_timestamp
+        .or(conversation.conversation_timestamp)
+        .unwrap_or(0) as i64;
+    let mut last_message_key = None;
+
+    for history_message in &conversation.messages {
+        let Some(message) = history_message.message.as_option() else {
+            continue;
+        };
+        let timestamp = message.message_timestamp.unwrap_or(0) as i64;
+        if timestamp >= last_message_timestamp
+            && let Some(key) = message.key.as_option()
+        {
+            last_message_timestamp = timestamp;
+            last_message_key = Some(key.clone());
+        }
+    }
+
+    Some((jid.into_non_ad(), name, last_message_timestamp, last_message_key))
 }
