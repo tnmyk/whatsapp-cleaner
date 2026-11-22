@@ -3,9 +3,11 @@ mod whatsapp;
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use gpui::{
-    App, Bounds, Context, Entity, FontWeight, ImageSource, KeyBinding, RenderImage, SharedString,
+    Animation, AnimationExt as _, App, Bounds, Context, Entity, FontWeight, ImageSource, KeyBinding,
+    RenderImage, SharedString,
     Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, prelude::*, px,
     relative, rgb, rgba, size,
 };
@@ -290,68 +292,146 @@ impl Render for WhatsappCleaner {
                     ),
             );
         } else if self.chats.is_empty() {
-            let (title, message): (&str, String) = if self.scanning {
-                let message = if self.total > 0 {
-                    format!(
-                        "Checked {} of {} chats. Business chats appear as they are checked.",
-                        self.checked, self.total
-                    )
-                } else {
-                    "History sync is still arriving. Business chats will appear as they are checked."
-                        .to_string()
-                };
-                ("Looking through your chats", message)
-            } else if self.error {
-                ("Something went wrong", self.hint.to_string())
-            } else {
-                (
-                    "No business chats found",
-                    "Only chats delivered in WhatsApp history sync can be checked.".to_string(),
-                )
-            };
-
-            body = body.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .gap_3()
-                    .w(px(760.0))
-                    .flex_1()
-                    .max_h(px(420.0))
-                    .p_8()
-                    .rounded_xl()
-                    .bg(rgb(SURFACE))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .child(
+            if self.scanning {
+                let mut skeleton_rows = div().flex().flex_col().gap_2().w_full();
+                for _ in 0..6 {
+                    skeleton_rows = skeleton_rows.child(
                         div()
-                            .size(px(44.0))
-                            .rounded_full()
-                            .bg(rgb(CARD))
                             .flex()
                             .items_center()
-                            .justify_center()
-                            .text_lg()
-                            .text_color(rgb(ACCENT))
-                            .child("?"),
+                            .gap_4()
+                            .w_full()
+                            .p_4()
+                            .rounded_xl()
+                            .bg(rgb(CARD))
+                            .border_1()
+                            .border_color(rgb(BORDER))
+                            .child(div().size(px(52.0)).rounded_full().bg(rgb(BORDER)))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .flex_1()
+                                    .child(
+                                        div()
+                                            .h(px(12.0))
+                                            .w(px(190.0))
+                                            .rounded_full()
+                                            .bg(rgb(BORDER)),
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(10.0))
+                                            .w(px(110.0))
+                                            .rounded_full()
+                                            .bg(rgb(BORDER)),
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(10.0))
+                                            .w(px(300.0))
+                                            .rounded_full()
+                                            .bg(rgb(BORDER)),
+                                    ),
+                            ),
+                    );
+                }
+
+                let skeleton = div()
+                    .flex()
+                    .flex_col()
+                    .w(px(760.0))
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(skeleton_rows)
+                    .with_animation(
+                        "skeleton-pulse",
+                        Animation::new(Duration::from_millis(1200)).repeat(),
+                        |this, delta| this.opacity(0.55 + 0.35 * delta),
+                    );
+
+                body = body.child(
+                    div()
+                        .flex()
+                        .items_end()
+                        .justify_between()
+                        .w(px(760.0))
+                        .mb_4()
+                        .flex_shrink_0()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_2xl()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("Business chats"),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(MUTED))
+                                        .child("Fetching chats from history sync…"),
+                                ),
+                        ),
+                );
+                body = body.child(skeleton);
+            } else {
+                let (title, message): (&str, String) = if self.error {
+                    ("Something went wrong", self.hint.to_string())
+                } else {
+                    (
+                        "No business chats found",
+                        "Only chats delivered in WhatsApp history sync can be checked.".to_string(),
                     )
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(title),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(MUTED))
-                            .text_center()
-                            .max_w(px(420.0))
-                            .child(message),
-                    ),
-            );
+                };
+
+                body = body.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap_3()
+                        .w(px(760.0))
+                        .flex_1()
+                        .max_h(px(420.0))
+                        .p_8()
+                        .rounded_xl()
+                        .bg(rgb(SURFACE))
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .child(
+                            div()
+                                .size(px(44.0))
+                                .rounded_full()
+                                .bg(rgb(CARD))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_lg()
+                                .text_color(rgb(ACCENT))
+                                .child("?"),
+                        )
+                        .child(
+                            div()
+                                .text_lg()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(MUTED))
+                                .text_center()
+                                .max_w(px(420.0))
+                                .child(message),
+                        ),
+                );
+            }
         } else {
             let query_raw = self.search_input.read(cx).content().trim().to_string();
             let query = query_raw.to_lowercase();
