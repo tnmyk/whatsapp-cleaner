@@ -269,6 +269,8 @@ impl Render for WhatsappCleaner {
                     .flex()
                     .flex_col()
                     .items_center()
+                    .justify_center()
+                    .flex_1()
                     .gap_5()
                     .child(
                         div()
