@@ -16,4 +16,4 @@ qrcode = { version = "0.15", default-features = false, features = ["std"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync", "time"] }
 unicode-segmentation = "1.13.3"
 ureq = "3"
-whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba", default-features = false, features = ["sqlite-storage", "tokio-transport", "tokio-runtime", "tokio-native", "ureq-client"] }
+whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "1b06a35eaab5e6b29ada7fc9a3030076d7b8cfba", default-features = false, features = ["sqlite-storage-bundled", "tokio-transport", "tokio-runtime", "tokio-native", "ureq-client"] }
